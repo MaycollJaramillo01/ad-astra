@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+*.log
+
+# Secretos y configuración local: nunca al repositorio
+.env
+.env.*
+!.env.example
+
+# Salida del spike de Meta (datos reales sin sanitizar)
+spike-output/

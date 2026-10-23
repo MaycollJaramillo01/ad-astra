@@ -1,0 +1,205 @@
+# Seguridad — Ad Astra
+
+> Versión 0.1 · 2026-10-23. Referencia de controles: OWASP ASVS nivel 2 y OWASP Top 10 para aplicaciones LLM (2025). Este documento es vinculante: un control marcado como obligatorio no se simplifica sin un ADR aprobado.
+
+## 1. Objetivos y alcance
+
+1. Ningún tenant puede ver ni modificar datos de otro (aislamiento verificable).
+2. Los tokens de Meta, el app secret y las claves de los proveedores **nunca** salen del backend: ni al frontend, ni a los logs, ni a los prompts, ni al repositorio.
+3. Ninguna escritura en Meta sin aprobación humana registrada; la IA no puede escribir.
+4. Toda acción relevante queda en un registro de auditoría de solo inserción.
+5. Cumplimiento de las Condiciones de la Plataforma de Meta y de la normativa de protección de datos aplicable (PQ-04).
+
+## 2. Activos y clasificación
+
+| Activo | Clasificación | Dónde vive |
+|---|---|---|
+| Tokens de Meta | **Secreto** | `meta_connections`, cifrados con AES-256-GCM |
+| App secret de Meta, claves de LLM y email, clave maestra (KEK) | **Secreto** | Gestor de secretos o variables de entorno del runtime; nunca en la BD ni en el repositorio |
+| Rendimiento y configuración de las campañas de los clientes | Confidencial (datos de la plataforma de Meta) | Postgres, con RLS |
+| Textos de creatividades y nombres de entidades | Confidencial y **no confiable** (posible inyección) | Postgres |
+| Nombres de actores del registro de actividad, emails del personal | Dato personal | Postgres, con retención acotada |
+| Hallazgos, decisiones y registro de auditoría | Confidencial e íntegro | Postgres (solo inserción) |
+| Conversaciones con la IA (F4) | Confidencial | Postgres, 90 días |
+
+## 3. Modelo de amenazas (STRIDE)
+
+| Amenaza | Ejemplo | Controles |
+|---|---|---|
+| **S**uplantación | Robo de la sesión de un administrador | Cookies httpOnly, Secure y SameSite=Lax; rotación de la sesión al iniciar sesión; acceso solo con Google Workspace y verificación en dos pasos obligatoria en su política; reautenticación para acciones sensibles |
+| **S**uplantación | Uso de un token de Meta robado desde otra máquina | Require App Secret + `appsecret_proof`; lista de IPs del servidor (opcional); cifrado en reposo |
+| **T**ampering | Alterar el registro de auditoría o las decisiones | `audit_log` solo inserción (sin `UPDATE` ni `DELETE`); RLS con `WITH CHECK`; hashes encadenados en F7 |
+| **T**ampering | Webhooks falsificados (F5) | Validación de `X-Hub-Signature-256`; idempotencia |
+| **R**epudio | "Yo no aprobé ese cambio de presupuesto" | Aprobación con actor, IP, user agent, estado antes y después y reautenticación |
+| **I**nformation disclosure | Fuga entre tenants | RLS forzado + tests en la CI que recorren todas las tablas |
+| **I**nformation disclosure | Token en logs o mensajes de error | Redacción en pino y en las URLs; test con token canario |
+| **I**nformation disclosure | Exfiltración mediante la IA | Herramientas acotadas por tenant y RBAC; sin herramientas de red; minimización; salida sin HTML activo |
+| **D**enegación de servicio | Abuso de endpoints o desgloses en vivo | Límite de peticiones por IP y usuario; cuotas de desgloses; colas con concurrencia acotada |
+| **D**enegación de servicio | Costo desbocado de LLM o de la API de Meta | Presupuestos por tenant y usuario; gobernador de cuotas |
+| **E**levación de privilegios | Un analyst aprueba acciones; IDOR entre clientes | Autorización centralizada (denegar por defecto); comprobación de alcance por cliente en cada servicio; tests de autorización por endpoint |
+| **E**levación de privilegios | "Agencia excesiva" de la IA | La IA no tiene herramientas de escritura; las propuestas pasan por el flujo de aprobación |
+
+## 4. Controles
+
+### 4.1 Identidad y sesiones del personal
+
+- **Google Workspace como único método de acceso** (PQ-05, ADR-019): Better Auth con sesiones en Postgres y sin contraseñas locales. Cliente OAuth de tipo "Internal" (solo cuentas del Workspace) y comprobación en el servidor de `hd` = dominio de la agencia y `email_verified`.
+- La verificación en dos pasos la impone la política del Workspace; debe estar **obligatoria** al menos para los usuarios con rol owner o admin (comprobación en el checklist de F1).
+- Tener cuenta del Workspace no da acceso: el alta es por invitación en Ad Astra, con su rol. Al dar de baja a alguien en el Workspace se le cierra el acceso; además, Ad Astra revoca sus sesiones al quitarle la membresía.
+- SAML/OIDC empresarial y usuarios externos (portal de clientes) en F7.
+- Sesión: expiración por inactividad (8 h) y absoluta (7 días); cierre de todas las sesiones al cambiar la contraseña o el rol.
+- Protección contra fuerza bruta: límite por cuenta e IP con retardo progresivo.
+
+### 4.2 Autorización: RBAC y alcance por cliente
+
+| Permiso | owner | admin | manager | analyst | viewer |
+|---|---|---|---|---|---|
+| Configuración del tenant, presupuestos de IA y API | ✓ | ✓ | – | – | – |
+| Gestionar usuarios y roles | ✓ | ✓ | – | – | – |
+| Gestionar conexiones de Meta (alta y baja de tokens) | ✓ | ✓ | – | – | – |
+| Gestionar clientes, asignaciones y consentimientos | ✓ | ✓ | – | – | – |
+| Ver datos | Todos | Todos | Clientes asignados | Clientes asignados | Clientes asignados |
+| Configurar reglas, objetivos KPI y umbrales | ✓ | ✓ | Sus clientes | – | – |
+| Reconocer, posponer y descartar hallazgos y alertas | ✓ | ✓ | ✓ | ✓ | – |
+| Usar el copiloto IA (F4) | ✓ | ✓ | ✓ | ✓ | Configurable |
+| Subir documentos (F4) | ✓ | ✓ | ✓ | ✓ | – |
+| Aprobar documentos para la IA (F4) | ✓ | ✓ | ✓ | – | – |
+| Proponer acciones (F5) | ✓ | ✓ | ✓ | ✓ | – |
+| Aprobar acciones (F5) | ✓ | ✓ | Sus clientes, hasta el umbral | – | – |
+| Kill switch de acciones (F5) | ✓ | ✓ | – | – | – |
+| Ver el registro de auditoría | ✓ | ✓ | – | – | – |
+
+- Un único servicio `authorize(user, permission, resource)` decide. Denegar por defecto. Cada endpoint declara su permiso y un test verifica que ninguno queda sin declarar.
+- Separación de funciones en F5: quien propone no puede aprobar su propia propuesta por encima del umbral de doble aprobación.
+
+### 4.3 Multi-tenancy verificable
+
+- `tenant_id` en todas las tablas de datos y RLS forzado ([DATABASE_SCHEMA.md §4](DATABASE_SCHEMA.md#4-aislamiento-multi-tenant-rls)).
+- El contexto de tenant se fija en el servidor a partir de la sesión; **nunca** desde un parámetro del cliente.
+- Pruebas obligatorias en la CI: cobertura de RLS en el catálogo de tablas, lectura y escritura cruzadas con `app_rw`, y una petición de la API con el ID de un recurso de otro tenant que debe devolver 404.
+
+### 4.4 Secretos y credenciales
+
+- **Cifrado de tokens de Meta:** AES-256-GCM (`node:crypto`), nonce aleatorio de 12 bytes por cifrado, AAD = `tenant_id || connection_id` y versión de clave. La clave maestra (32 bytes) vive como variable de entorno *Sensitive* de Vercel (ADR-022), distinta por entorno, y solo la leen las funciones `api` y `tick`.
+- **Rotación de la clave maestra:** nueva versión → job que recifra las filas → retirada de la versión anterior. En SaaS (F7), la clave maestra pasa a un KMS con claves de datos por tenant (cifrado de sobre).
+- El token se descifra justo antes de la llamada a Meta, solo en memoria, y no se pasa a funciones de logging ni de error.
+- **App secret:** solo en el gestor de secretos. Se rota si hay sospecha de exposición (y se revalidan todas las conexiones).
+- **Repositorio:** `.env` en `.gitignore`, `.env.example` sin valores y escaneo de secretos (gitleaks o equivalente) en pre-commit y en la CI.
+- **Respuestas de la API:** las conexiones devuelven solo `id`, `label`, `kind`, `scopes`, `status`, `expires_at` y la huella. Un test de contrato verifica que ningún esquema de respuesta contiene campos `token`.
+
+### 4.5 Protección de endpoints
+
+- Validación con zod de todo el input (cuerpo, query, parámetros y cabeceras relevantes); rechazo de campos desconocidos en las escrituras.
+- Validación de salida: las respuestas se serializan con el esquema declarado (no se filtran campos internos).
+- CSRF: token de doble envío en los métodos que modifican; CORS cerrado (mismo origen).
+- Cabeceras: CSP estricta (sin `unsafe-inline` en scripts), HSTS, `X-Content-Type-Options`, `Referrer-Policy` y `frame-ancestors 'none'` (helmet).
+- Límite de peticiones (`@fastify/rate-limit`) por IP y usuario, más estricto en login y en los desgloses en vivo.
+- Errores en formato `problem+json` sin trazas; el detalle va al log con el `request_id`.
+- Subidas (F4, documentos): tipos permitidos, tamaño máximo, sin ejecución y extracción de texto en el worker.
+
+### 4.6 Registro de auditoría
+
+Eventos mínimos: inicio y cierre de sesión, fallos de login, cambios de rol, alta, baja, rotación o invalidación de conexiones, asignación de cuentas, consentimientos, cambios de reglas y objetivos, decisiones sobre hallazgos, uso de la IA (metadatos), propuestas, aprobaciones, ejecuciones y reversiones, kill switch, purgas y exportaciones. Nunca se guardan secretos en `before` y `after`.
+
+### 4.7 Consentimientos y permisos de los clientes
+
+- Cada cliente tiene un consentimiento con alcance explícito (`read_insights`, `ai_processing`, `write_status`, `write_budget`) y una referencia al documento firmado.
+- Sin `read_insights` activo, sus cuentas no se sincronizan; sin `ai_processing`, la IA no accede a sus datos; sin el alcance de escritura correspondiente, no se pueden crear propuestas para ellas.
+- La revocación detiene la sincronización de inmediato y programa la purga (§5).
+- El permiso técnico (scopes del token y `user_tasks`) y el consentimiento contractual se comprueban **ambos** antes de actuar.
+
+### 4.8 Seguridad de la IA (OWASP Top 10 para LLM, 2025)
+
+| Riesgo | Control en Ad Astra |
+|---|---|
+| LLM01 Inyección de prompts | Nombres de entidades, creatividades y documentos devueltos como datos etiquetados y delimitados; instrucciones del operador solo en el prompt de sistema o en mensajes de sistema intermedios; sin capacidades que una inyección pueda aprovechar (ni escritura, ni red, ni otros tenants); suite de inyección en la CI |
+| LLM02 Divulgación de información sensible | Minimización (sin PII ni secretos en el contexto); herramientas acotadas por tenant y RBAC; test que busca patrones de token en los prompts registrados |
+| LLM03 Cadena de suministro | Proveedor y SDK oficiales con versión fijada; sin plugins de terceros |
+| LLM04 Envenenamiento de datos | Solo documentos `approved` son recuperables; la aprobación queda auditada |
+| LLM05 Manejo inseguro de la salida | Markdown saneado, sin HTML ni scripts; enlaces solo a la propia plataforma; las propuestas generadas se validan con esquema y pasan por aprobación |
+| LLM06 Agencia excesiva | Inventario de herramientas de solo lectura comprobado por un test; ninguna dependencia de `ai` hacia `meta` u `optimization` |
+| LLM07 Fuga del prompt de sistema | El prompt de sistema no contiene secretos; si se filtrara, no habilita nada |
+| LLM08 Debilidades de vectores y embeddings | Si se usa pgvector: RLS en `document_chunks` y filtrado por tenant antes de la búsqueda |
+| LLM09 Desinformación | Verificador de cifras; lenguaje probabilístico; citas de evidencia; evals |
+| LLM10 Consumo sin límites | Presupuestos por tenant y usuario, `max_tokens`, máximo de llamadas a herramientas por turno, timeouts |
+
+### 4.9 Seguridad de las integraciones
+
+- Solo el módulo `meta` habla con Meta, con la URL base fija; nunca se piden URLs construidas a partir de datos de usuario.
+- **SSRF:** el servidor no descarga miniaturas ni URLs de creatividades; el navegador las carga directamente desde la CDN de Meta, con la CSP limitada a esos dominios.
+- Webhooks (F5): firma, verificación de suscripción, deduplicación y procesamiento asíncrono.
+- Proveedores (LLM, email): claves con el mínimo alcance, una por entorno, rotación documentada.
+
+### 4.10 Cadena de suministro de software
+
+- Lockfile obligatorio e instalación con `--frozen-lockfile` en la CI.
+- Auditoría de dependencias (`pnpm audit` u OSV-Scanner) en cada PR; las vulnerabilidades altas bloquean la integración.
+- Actualizaciones automáticas (Renovate o Dependabot) agrupadas semanalmente.
+- Imagen de contenedor mínima, usuario sin privilegios y escaneo de la imagen.
+- Política de dependencias: cada dependencia nueva se justifica en el PR (ADR-001).
+
+### 4.11 Logs y privacidad
+
+- pino con `redact` en `*.access_token`, `*.token`, `*.appsecret_proof`, `*.client_secret`, `*.fb_exchange_token`, `req.headers.authorization` y `req.headers.cookie`.
+- `redactUrl()` obligatorio para cualquier URL registrada. Los errores de las librerías HTTP se registran solo por código y mensaje redactado.
+- **Test canario:** la suite inyecta un token ficticio con un patrón reconocible, ejecuta flujos de error y verifica que el patrón no aparece en logs, respuestas, `sync_runs`, `meta_api_calls` ni `llm_usage`.
+- Sin datos personales en los logs más allá de los IDs internos.
+
+## 5. Cumplimiento
+
+- **Condiciones de la Plataforma de Meta** ([API_INTEGRATIONS.md §1.19](API_INTEGRATIONS.md#119-condiciones-de-la-plataforma-de-meta-aplicables-v)): uso limitado a la gestión de las cuentas del cliente; borrado cuando lo pidan Meta o el cliente o cuando dejen de ser necesarios; acuerdos escritos con los proveedores de servicios; seguridad acorde a los estándares del sector; notificación de incidentes; cooperación en auditorías.
+- **Registro de subencargados** (se mantiene en este documento a partir de F1):
+
+| Subencargado | Propósito | Datos | Acuerdo | Desde |
+|---|---|---|---|---|
+| Vercel (PQ-04) | Alojamiento de la SPA, la API y el `tick` | Todos en tránsito; logs | DPA | F1 |
+| Neon (PQ-04) | Base de datos | Todos | DPA | F1 |
+| Google (Workspace) | Identidad del personal | Emails y nombres del personal | Condiciones del Workspace | F1 |
+| Proveedor de email (por decidir) | Alertas | Emails del personal y nombres de cuentas | DPA | F3 |
+| Proveedor LLM (Anthropic, propuesto) | Copiloto y reportes | Métricas agregadas, sin PII | DPA y retención acordada | F4 |
+
+- **Protección de datos:** la ley aplicable depende de la jurisdicción de la agencia y de sus clientes (RGPD/LOPDGDD en España, LFPDPPP en México, LGPD en Brasil…), por confirmar en PQ-04. Los datos de rendimiento son mayoritariamente agregados, pero hay datos personales del personal y de los actores del registro de actividad. La agencia suele actuar como encargada del tratamiento de sus clientes: los contratos con los clientes deben cubrirlo.
+- **Fuera del alcance a propósito:** datos personales de leads (formularios instantáneos), audiencias personalizadas con listas de clientes y cualquier dato a nivel de usuario.
+
+## 6. Backups y recuperación
+
+| Objetivo | MVP |
+|---|---|
+| RPO | ≤ 15 min (PITR de Neon: hasta 7 días en Launch, hasta 30 en Scale; Free solo da 6 h y no sirve para producción) |
+| RTO | ≤ 4 h (restauración de una rama de Neon a un instante) |
+| Backups lógicos | Diarios con `pg_dump` desde un workflow programado de GitHub Actions, cifrados, en almacenamiento fuera de Neon, con 30 días de retención (se monta en F1) |
+| Clave maestra | Respaldada aparte de la BD (copia fuera de Vercel, con su versión). Sin ella, los tokens son irrecuperables por diseño: se reconectan las cuentas |
+| Simulacro | Restauración completa en un entorno aislado al cierre de cada fase, con el tiempo medido y registrado en [TESTING.md](TESTING.md) |
+
+Meta es una fuente secundaria para los hechos de los últimos 37 meses (se pueden volver a descargar), pero **no** para los hallazgos, decisiones, consentimientos ni el registro de auditoría: esos datos dependen solo de los backups.
+
+## 7. Respuesta a incidentes
+
+1. **Detección:** alertas de errores, accesos anómalos, fallos del test canario y avisos de proveedores.
+2. **Contención:** kill switch de acciones, revocación de sesiones, invalidación de conexiones (borrar el cifrado y revocar los tokens en el portafolio de Meta) y rotación del app secret si procede.
+3. **Erradicación y recuperación:** corrección, restauración si es necesario y revalidación de las conexiones.
+4. **Notificación:** a Meta "lo antes posible y nunca más tarde de lo que exija la ley" (Condiciones §6.b), a los clientes afectados y a la autoridad de protección de datos si aplica, dentro de los plazos legales.
+5. **Postmortem** sin culpables en 5 días hábiles, con acciones en el registro de deuda.
+
+## 8. Checklist de seguridad por fase
+
+| Fase | Controles que deben quedar verificados |
+|---|---|
+| F0 | Repositorio con escaneo de secretos; `.env.example` sin valores; redacción de logs y `redactUrl()` con tests; `appsecret_proof` en el cliente; Require App Secret activado en la app de Meta; token del spike fuera del repositorio |
+| F1 | RLS forzado en todas las tablas + tests de aislamiento; cifrado de tokens con AAD + test de manipulación; respuestas sin tokens (test de contrato); test canario; RBAC centralizado y tests por endpoint; acceso solo con Google Workspace (app OAuth "Internal" + `hd`) y verificación en dos pasos obligatoria en el Workspace para owner y admin; registro de auditoría de solo inserción; límites de peticiones; CSP y cabeceras; auditoría de dependencias en la CI; backups y PITR configurados; consentimientos por cliente |
+| F2 | Autorización por cliente en todas las consultas; cuotas de desgloses en vivo; exportaciones CSV auditadas |
+| F3 | Notificaciones sin datos sensibles; DPA del proveedor de email; simulacro de restauración |
+| F4 | DPA del proveedor LLM; minimización verificada; inventario de herramientas de solo lectura (test); suite de inyección; verificador de cifras; presupuestos y límites; documentos solo `approved` |
+| F5 | Doble verificación de permisos (token + `user_tasks` + consentimiento); separación de funciones; reautenticación al aprobar; kill switch probado; idempotencia; webhooks firmados; pruebas de escritura solo en sandbox |
+| F6 | Los modelos no exponen datos de otros tenants (entrenamiento y ajuste por tenant) |
+| F7 | KMS con claves por tenant; SSO; prueba de penetración externa; reparto de cuotas; hashes encadenados en el registro de auditoría |
+
+## 9. Prohibiciones explícitas
+
+- Tokens, secretos o claves en el frontend, los logs, los prompts, los fixtures o el repositorio.
+- Credenciales reales en pruebas automatizadas o en la CI.
+- Escrituras en Meta fuera del flujo de aprobación, incluidas las de scripts manuales en producción.
+- Herramientas de la IA con capacidad de escritura o de red.
+- Fijar el contexto de tenant desde parámetros del cliente.
+- Descargar URLs proporcionadas por terceros desde el servidor.
+- Desactivar RLS o usar `app_maint` en el código de la aplicación.

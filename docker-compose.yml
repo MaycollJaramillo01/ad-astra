@@ -1,0 +1,19 @@
+# Solo desarrollo local. En staging y producción la BD es Neon (ADR-022).
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_PASSWORD: postgres_local
+    ports:
+      - "55432:5432" # puerto alto en el host para no chocar con instalaciones locales de Postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ad_astra"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  pgdata:
