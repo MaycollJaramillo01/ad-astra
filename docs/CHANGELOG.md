@@ -11,7 +11,8 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 - `src/modules/meta/`: cliente mínimo de Graph / Marketing API v26.0 (`appsecret_proof`, token en la URL o en cabecera, GET y POST, paginación por cursor sin seguir `paging.next`, errores sin truncado silencioso, fallos de red redactados, `fetch` inyectable), taxonomía de errores, lectura de las cabeceras de uso, lista de campos y snapshot de las specs oficiales (`facebook-business-sdk-codegen@8420be6`).
 - `scripts/spike-meta.ts` (spike manual autorizado de V-01 a V-12), `scripts/sanitize.ts` (sanitizador de fixtures), `scripts/update-meta-specs.ts`, `scripts/check-docs.ts`.
 - 51 tests: contrato de campos con las specs, taxonomía de errores, cliente, canario de tokens en logs, sanitizador, anclas de documentación y roles de BD contra Postgres real.
-- `.github/workflows/ci.yml`: typecheck, lint, tests con Postgres 17 de servicio, comprobación de documentación, auditoría de dependencias y gitleaks.
+- `.github/workflows/ci.yml`: typecheck, lint, tests con Postgres 17 de servicio, comprobación de documentación, auditoría de dependencias y gitleaks. Primera ejecución en verde (run 40007312436).
+- Repositorio privado `MaycollJaramillo01/ad-astra` y `.gitattributes` con finales de línea LF.
 - `README.md` de puesta en marcha.
 - ADR-022: despliegue en Vercel Pro + Neon con el worker como función `tick` programada.
 - Checklist de configuración en Meta (API_INTEGRATIONS §1.21).

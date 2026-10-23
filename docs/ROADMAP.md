@@ -69,7 +69,7 @@ Plantilla de cada fase: (1) objetivo y alcance · (2) requisitos funcionales y n
 
 ### 4.1 F0 — Fundaciones y spikes de viabilidad
 
-> **Estado (2026-10-23): en curso.** Hecho: PQ-01, 02, 04 y 05 respondidas; repositorio git local; esqueleto (un solo paquete, ADR-001 revisado); TypeScript 7 estricto con ejecución nativa en Node 22; Biome; Vitest con 50 tests en verde; Postgres 17 local con roles; cliente mínimo de Meta (versión, `appsecret_proof`, paginación por cursor, taxonomía de errores, cabeceras de uso, redacción); snapshot de specs v26 y test de contrato; sanitizador de fixtures; script del spike; workflow de CI (sin ejecutar hasta que exista el remoto). Pendiente: remoto en GitHub, configuración en Meta, **ejecución del spike por el responsable**, hallazgos V-01 a V-14, solicitudes de App Review y verificación, línea base de tiempos y PQ-03 y PQ-04b. Drizzle se aplaza a F1, con la primera tabla real.
+> **Estado (2026-10-23): en curso.** Hecho: PQ-01, 02, 04 y 05 respondidas; repositorio git local; esqueleto (un solo paquete, ADR-001 revisado); TypeScript 7 estricto con ejecución nativa en Node 22; Biome; Vitest con 50 tests en verde; Postgres 17 local con roles; cliente mínimo de Meta (versión, `appsecret_proof`, paginación por cursor, taxonomía de errores, cabeceras de uso, redacción); snapshot de specs v26 y test de contrato; sanitizador de fixtures; script del spike; repositorio privado `MaycollJaramillo01/ad-astra` con la CI en verde. Pendiente: configuración en Meta, **ejecución del spike por el responsable**, hallazgos V-01 a V-14, solicitudes de App Review y verificación, línea base de tiempos y PQ-03 y PQ-04b. Drizzle se aplaza a F1, con la primera tabla real.
 
 1. **Objetivo y alcance.** Eliminar las incertidumbres críticas antes de construir: acceso real a Meta (nivel, permisos, cuentas de socio), comportamiento de la API v26, esqueleto del repositorio, CI y entorno local reproducible. **No** incluye funcionalidades de producto.
 2. **Requisitos.**
@@ -264,7 +264,7 @@ Se revisa al cierre de cada fase. Cada entrada indica el impacto y cuándo se pa
 | TD-04 | Planificación | Detalles de API sin confirmar (V-01 a V-14) | Posibles cambios de esquema | F0 |
 | TD-05 | Planificación | Algunos datos se repiten entre documentos (versiones de Meta, criterios del MVP) y pueden desincronizarse | Documentos contradictorios | F0: la fuente única es el documento de detalle (API_INTEGRATIONS, ROADMAP) y los demás enlazan; enlaces y anclas comprobados en la CI (`pnpm docs:check`). La sintaxis Mermaid sigue siendo una comprobación manual |
 | TD-06 | F0 | El `tick` tiene un techo de 800 s por invocación: un backfill grande debe trocearse por meses y cuentas | Backfills lentos con muchas cuentas | F1 (troceo); reevaluar Vercel Workflows si no basta |
-| TD-07 | F0 | Workflow de CI escrito pero sin ejecutar hasta crear el remoto en GitHub | Errores de CI aún no detectados | F0 (primer push) |
+| TD-07 | F0 | ~~Workflow de CI escrito pero sin ejecutar hasta crear el remoto en GitHub~~ **Resuelto el 2026-10-23:** primera ejecución en verde (run 40007312436, commit `bbc6ba1`) | — | — |
 
 ## 7. Supuestos de capacidad
 

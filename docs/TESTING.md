@@ -88,7 +88,7 @@ Cada fase añade aquí una entrada al cerrar: fecha, commit, resultado por crite
 | 2026-10-23 | F0 (parcial) | `pnpm typecheck`, `pnpm lint`, `pnpm test` (unitarias, contrato con las specs v26, canario de tokens, roles de BD en Postgres 17 real) y `pnpm docs:check` en local | ✓ (detalle de la cifra de tests en CHANGELOG) |
 | 2026-10-23 | F0 (parcial) | Script de roles (`db/init/01-roles.sql`) sobre un Postgres 17 limpio, como en la CI | ✓ |
 | 2026-10-23 | F0 (parcial) | `pnpm audit --audit-level high` | ✓ sin vulnerabilidades conocidas |
-| — | F0 | Workflow de GitHub Actions | Pendiente: sin remoto todavía (TD-07) |
+| 2026-10-23 | F0 (parcial) | Primera ejecución del workflow de GitHub Actions (run 40007312436, commit `bbc6ba1`): job `check` (typecheck, lint, 51 tests con Postgres 17 de servicio, `docs:check`, auditoría de dependencias) y job `secrets` (gitleaks) | ✓ ambos jobs en verde (TD-07 resuelto) |
 | — | F0 | Spike contra Meta real (CA-F0-02 a 05) | Pendiente: ejecución manual autorizada por el responsable |
 
 ## 9. Pruebas manuales autorizadas

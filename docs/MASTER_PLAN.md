@@ -331,6 +331,6 @@ flowchart LR
 Plan aprobado el 2026-10-23. Esqueleto de F0 construido (ver [ROADMAP §4.1](ROADMAP.md#41-f0--fundaciones-y-spikes-de-viabilidad)). Para cerrar F0:
 
 1. **Responsable:** configurar Meta según el checklist de [API_INTEGRATIONS §1.21](API_INTEGRATIONS.md#121-checklist-de-configuración-en-meta-f0) y ejecutar `pnpm spike:meta` (prueba manual autorizada).
-2. **Responsable:** responder PQ-03 y PQ-04b; crear el remoto en GitHub (privado) para que corra la CI.
+2. **Responsable:** responder PQ-03 y PQ-04b. (Hecho: repositorio privado `MaycollJaramillo01/ad-astra` con la CI en verde.)
 3. **Equipo:** documentar los hallazgos V-01 a V-14, ajustar los ADR 006 y 009 y cerrar F0 (CHANGELOG 0.1.0).
 4. Antes de F1: cuentas de Vercel Pro y Neon Launch, y cliente OAuth "Internal" en Google Cloud.
