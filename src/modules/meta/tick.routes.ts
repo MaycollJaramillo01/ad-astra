@@ -6,6 +6,7 @@ import type { Config } from '../../platform/config.ts';
 import type { TokenCipher } from '../../platform/crypto.ts';
 import { AppError, notFound, unauthorized } from '../../platform/errors.ts';
 import { runTick } from '../../platform/jobs.ts';
+import { createAuditHandler } from '../audit/service.ts';
 import { createSyncHandlers } from './sync.ts';
 
 // Tick de la cola (ADR-022): Vercel Cron llama a GET /v1/internal/tick con
@@ -14,12 +15,15 @@ import { createSyncHandlers } from './sync.ts';
 /** El tick listo para ejecutar, o null si falta la app de Meta (no se simula nada). */
 export function createTickRunner(config: Config, db: Db, cipher: TokenCipher, log: Logger) {
   if (!config.META_APP_ID || !config.META_APP_SECRET) return null;
-  const handlers = createSyncHandlers({
-    db,
-    cipher,
-    meta: { appId: config.META_APP_ID, appSecret: config.META_APP_SECRET },
-    log,
-  });
+  const handlers = {
+    ...createSyncHandlers({
+      db,
+      cipher,
+      meta: { appId: config.META_APP_ID, appSecret: config.META_APP_SECRET },
+      log,
+    }),
+    audit: createAuditHandler(db),
+  };
   return () =>
     runTick({
       db,

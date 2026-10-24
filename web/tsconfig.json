@@ -13,5 +13,10 @@
     "skipLibCheck": true,
     "types": []
   },
-  "include": ["src", "../src/contracts.ts", "../src/domain.ts"]
+  "include": [
+    "src",
+    "../src/contracts.ts",
+    "../src/domain.ts",
+    "../src/modules/insights/catalog.ts"
+  ]
 }

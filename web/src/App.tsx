@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Navigate, NavLink, Route, Routes } from 'react-router';
 import type { Me } from '../../src/contracts.ts';
 import { ApiError, api, authClient, getActiveTenant, setActiveTenant } from './api.ts';
+import { DashboardPage } from './dashboard.tsx';
 import { AccountsPage, ClientsPage, ConnectionsPage, ErrorBox } from './pages.tsx';
 
 export function App() {
@@ -25,7 +26,9 @@ export function App() {
   return (
     <Shell me={me.data} activeTenantId={active.tenantId}>
       <Routes>
-        <Route path="/" element={<Navigate to="/clientes" replace />} />
+        <Route path="/" element={<Navigate to="/analitica" replace />} />
+        <Route path="/analitica" element={<DashboardPage role={active.role} />} />
+        <Route path="/analitica/:level/:id" element={<DashboardPage role={active.role} />} />
         <Route path="/clientes" element={<ClientsPage role={active.role} />} />
         <Route path="/cuentas" element={<AccountsPage role={active.role} />} />
         <Route path="/conexiones" element={<ConnectionsPage role={active.role} />} />
@@ -77,6 +80,9 @@ function Shell({
           <span className="text-sm text-gray-500">{me.memberships[0]?.tenantName}</span>
         )}
         <nav aria-label="Principal" className="flex gap-1">
+          <NavLink to="/analitica" className={link}>
+            Analítica
+          </NavLink>
           <NavLink to="/clientes" className={link}>
             Clientes
           </NavLink>
@@ -102,7 +108,7 @@ function Shell({
           Salir
         </button>
       </header>
-      <main className="mx-auto max-w-5xl p-4">{children}</main>
+      <main className="mx-auto max-w-7xl p-4">{children}</main>
     </div>
   );
 }

@@ -7,6 +7,14 @@ import {
   ROLES,
   SEVERITIES,
 } from './domain.ts';
+import { AuditConfigPatch } from './modules/audit/model.ts';
+import {
+  BASE_FIELDS,
+  type BaseField,
+  daysBetween,
+  NODE_LEVELS,
+  PRESET_IDS,
+} from './modules/insights/catalog.ts';
 
 // Contrato de la API v1 (ADR-017): estos esquemas validan las peticiones, serializan las
 // respuestas (no sale ningún campo que no esté aquí) y generan el OpenAPI. La web importa
@@ -159,6 +167,15 @@ export const FindingDto = z.object({
   firstSeenAt: iso,
   lastSeenAt: iso,
   decisionReason: z.string().nullable(),
+  // Motor de auditoría (F3)
+  category: z.string().nullable(),
+  profile: z.string().nullable(),
+  explanation: z.string().nullable(),
+  recommendationText: z.string().nullable(),
+  engineVersion: z.string().nullable(),
+  windowStart: z.string().nullable(),
+  windowEnd: z.string().nullable(),
+  resolvedAt: iso.nullable(),
 });
 export const FindingsQuery = z.object({
   status: z.enum(FINDING_STATUSES).optional(),
@@ -210,6 +227,193 @@ export const AuditLogQuery = z.object({
   before: z.coerce.number().int().positive().optional(),
 });
 
+// --- Analítica (F2)
+const day = z.iso.date();
+const NodeLevel = z.enum(NODE_LEVELS);
+const num = z.number().nullable();
+const TotalsDto = z.object(
+  Object.fromEntries(BASE_FIELDS.map((f) => [f, num])) as Record<BaseField, typeof num>,
+);
+
+const analyticsQueryShape = {
+  level: NodeLevel.default('org'),
+  /** uuid del cliente o la cuenta ("none": cuentas sin cliente); id de Meta de campaña, conjunto o anuncio. */
+  id: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{1,64}$/)
+    .optional(),
+  preset: z.enum(PRESET_IDS).optional(),
+  since: day.optional(),
+  until: day.optional(),
+  compare: z.enum(['previous', 'year', 'none']).default('previous'),
+  currency: z
+    .string()
+    .regex(/^[A-Z]{3}$/)
+    .optional(),
+};
+const validRange = (q: { since?: string; until?: string }) =>
+  (q.since === undefined) === (q.until === undefined) &&
+  (!q.since || !q.until || (q.since <= q.until && daysBetween(q.since, q.until) <= 1130));
+const RANGE_ERROR = {
+  message: 'rango no válido: since y until juntos, en orden y como máximo 37 meses',
+};
+
+export const AnalyticsQuery = z.object(analyticsQueryShape).refine(validRange, RANGE_ERROR);
+export const AnalyticsExportQuery = z
+  .object({
+    ...analyticsQueryShape,
+    /** Ids de métricas del catálogo separados por comas. */
+    columns: z
+      .string()
+      .regex(/^[A-Za-z,]{1,500}$/)
+      .optional(),
+  })
+  .refine(validRange, RANGE_ERROR);
+
+const StatusKind = z.enum(['client', 'account', 'delivery']);
+const ChildRowDto = z.object({
+  id: z.string(),
+  name: z.string(),
+  statusKind: StatusKind,
+  status: z.string().nullable(),
+  deleted: z.boolean(),
+  learning: z.string().nullable(),
+  objective: z.string().nullable(),
+  currency: z.string().nullable(),
+  lastSyncAt: iso.nullable(),
+  accounts: z.number().int(),
+  current: TotalsDto,
+  previous: TotalsDto.nullable(),
+  resultTypes: z.array(z.string()),
+  previousResultTypes: z.array(z.string()),
+  sources: z.number().int(),
+});
+
+export const AnalyticsReportDto = z.object({
+  node: z.object({
+    level: NodeLevel,
+    id: z.string().nullable(),
+    name: z.string(),
+    statusKind: StatusKind,
+    status: z.string().nullable(),
+    deleted: z.boolean(),
+    learning: z.string().nullable(),
+    objective: z.string().nullable(),
+    accountId: z.uuid().nullable(),
+  }),
+  path: z.array(z.object({ level: NodeLevel, id: z.string().nullable(), name: z.string() })),
+  range: z.object({
+    since: day,
+    until: day,
+    days: z.number().int(),
+    preset: z.string().nullable(),
+  }),
+  compare: z
+    .object({ mode: z.enum(['previous', 'year', 'none']), since: day, until: day })
+    .nullable(),
+  today: day,
+  timezones: z.array(z.string()),
+  currency: z.string().nullable(),
+  currencies: z.array(z.object({ code: z.string(), accounts: z.number().int(), spend: num })),
+  totals: z.object({
+    current: TotalsDto,
+    previous: TotalsDto.nullable(),
+    resultTypes: z.array(z.string()),
+    previousResultTypes: z.array(z.string()),
+    sources: z.number().int(),
+  }),
+  attribution: z.array(z.string()),
+  series: z.array(
+    z.object({
+      date: day,
+      previousDate: day.nullable(),
+      current: TotalsDto,
+      previous: TotalsDto.nullable(),
+    }),
+  ),
+  results: z.array(z.object({ indicator: z.string(), current: num, previous: num })),
+  children: z.object({ level: NodeLevel, rows: z.array(ChildRowDto) }).nullable(),
+  freshness: z.object({
+    accounts: z.number().int(),
+    syncEnabled: z.number().int(),
+    neverSynced: z.number().int(),
+    oldestSyncAt: iso.nullable(),
+    newestSyncAt: iso.nullable(),
+    dataUntil: day.nullable(),
+    immatureFrom: day,
+    finalBefore: day,
+  }),
+});
+
+// --- Motor de auditoría y salud (F3)
+const Grade = z.enum(['excellent', 'good', 'attention', 'critical', 'insufficient']);
+export const HealthDto = z.object({
+  level: Level,
+  entityId: z.string(),
+  date: day,
+  formulaVersion: z.string(),
+  profile: z.string(),
+  windowDays: z.number().int(),
+  score: z.number().nullable(),
+  grade: Grade,
+  coverage: z.number(),
+  confidence: z.number().nullable(),
+  /** [{id, status, value, reference, referenceSource, q, s, weight, confidence, n, note}] */
+  components: z.array(z.record(z.string(), z.unknown())),
+});
+export const AuditEntityQuery = z.object({
+  level: Level,
+  id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
+});
+export const AuditEntityDto = z.object({
+  health: HealthDto.nullable(),
+  history: z.array(z.object({ date: day, score: z.number().nullable(), grade: Grade })),
+  findings: z.array(FindingDto.extend({ entityName: z.string().nullable() })),
+  childrenHealth: z.record(z.string(), z.object({ score: z.number().nullable(), grade: Grade })),
+});
+export const AuditRunBody = z.object({ asOf: day.optional() });
+export const AuditRunDto = z.object({
+  runId: z.number().int(),
+  asOf: day,
+  inputHash: z.string(),
+  engineVersion: z.string(),
+  stats: z.record(z.string(), z.number()),
+});
+export const AuditCatalogDto = z.object({
+  engineVersion: z.string(),
+  formulaVersion: z.string(),
+  categories: z.record(z.string(), z.string()),
+  profiles: z.record(z.string(), z.string()),
+  subindices: z.record(z.string(), z.string()),
+  rules: z.array(
+    z.object({
+      id: z.string(),
+      version: z.number().int(),
+      category: z.string(),
+      title: z.string(),
+      description: z.string(),
+      method: z.string(),
+      minSample: z.string(),
+      levels: z.array(z.string()),
+      profiles: z.union([z.literal('all'), z.array(z.string())]),
+      statistical: z.boolean(),
+      defaults: z.record(z.string(), z.unknown()),
+      paramsSchema: z.unknown(),
+    }),
+  ),
+  defaults: z.unknown(),
+});
+export const AuditConfigQuery = z.object({ clientId: z.uuid().optional() });
+export const AuditConfigDto = z.object({
+  effective: z.unknown(),
+  organization: z.unknown().nullable(),
+  client: z.unknown().nullable(),
+});
+export const PutAuditConfigBody = z.object({
+  clientId: z.uuid().nullable().default(null),
+  patch: AuditConfigPatch,
+});
+
 export type Me = z.infer<typeof MeDto>;
 export type Member = z.infer<typeof MemberDto>;
 export type Invitation = z.infer<typeof InvitationDto>;
@@ -222,3 +426,8 @@ export type SyncRun = z.infer<typeof SyncRunDto>;
 export type Finding = z.infer<typeof FindingDto>;
 export type Recommendation = z.infer<typeof RecommendationDto>;
 export type AuditEvent = z.infer<typeof AuditEventDto>;
+export type AnalyticsReport = z.infer<typeof AnalyticsReportDto>;
+export type AnalyticsChildRow = z.infer<typeof ChildRowDto>;
+export type Health = z.infer<typeof HealthDto>;
+export type AuditEntity = z.infer<typeof AuditEntityDto>;
+export type AuditCatalog = z.infer<typeof AuditCatalogDto>;

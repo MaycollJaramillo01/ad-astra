@@ -702,12 +702,19 @@ export function createSyncHandlers(deps: SyncDeps): Record<SyncKind, JobHandler>
       });
       run.rows += rows.length;
     }
-    await inTenant(job, (tx) =>
-      tx
+    // Datos nuevos: se reevalúa la cuenta (un solo trabajo de auditoría en cola por cuenta).
+    await inTenant(job, async (tx) => {
+      await tx
         .update(adAccounts)
         .set({ lastInsightsSyncAt: new Date() })
-        .where(eq(adAccounts.id, account.id)),
-    );
+        .where(eq(adAccounts.id, account.id));
+      await enqueue(tx, {
+        tenantId: job.tenantId,
+        kind: 'audit',
+        payload: { adAccountId: account.id },
+        dedupeKey: `account:${account.id}:audit`,
+      });
+    });
   }
 
   const incrementalWindow = (today: string) => ({ since: addDays(today, -1), until: today });

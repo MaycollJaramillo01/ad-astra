@@ -139,6 +139,11 @@ Plantilla de cada fase: (1) objetivo y alcance · (2) requisitos funcionales y n
 
 ### 4.3 F2 — Analítica centralizada
 
+> **Estado (2026-10-24): dashboard implementado y probado; falta la conciliación con cuentas reales y lo indicado en TD-23.**
+> - ✅ Catálogo único de 27 métricas (`src/modules/insights/catalog.ts`) con definición, fórmula, origen, aditividad, estados de dato (ADR-021) y valor de referencia en los tests; división entre cero, alcance no sumable, resultados de tipos mezclados y conversiones en maduración controlados.
+> - ✅ Vistas de cartera, cliente, cuenta, campaña, conjunto y anuncio en una sola consulta (`GET /v1/analytics`): periodo con presets de Meta o personalizado, comparación con el periodo anterior o el año anterior, monedas separadas (ADR-020), zona horaria de la cuenta, atribución, madurez y frescura de la sincronización visibles; tendencia diaria con tabla equivalente, desglose de resultados, estados de entrega, tabla de hijos con filtros, columnas configurables, variación para investigar anomalías y exportación CSV auditada.
+> - Criterios: CA-F2-01, 03, 04 y 06 cumplidos con tests; CA-F2-02 (3 cuentas reales × 3 rangos) y CA-F2-05 (p95 con dataset de referencia) pendientes.
+
 1. **Objetivo y alcance.** Dashboards fiables de cartera, cliente, cuenta, campaña, conjunto y anuncio, con métricas coherentes con Meta y conscientes del objetivo. Es el primer incremento usable.
 2. **Requisitos.**
    - FR: catálogo de métricas publicado en la UI (definición, fórmula, unidad, aditividad); perfiles KPI con detección automática y sobrescritura; objetivos KPI por cliente; vista de cartera (inversión, resultados, CPR frente a objetivo, concentración HHI); vista de cuenta (KPIs, tendencias, comparación de periodos: anterior y año anterior); tablas jerárquicas con filtros; series diarias con anotaciones (cambios de `entity_changes` y `meta_activities`, cambios metodológicos de Meta del 2026-01-12 y de marzo de 2026); comparación entre cuentas, campañas y periodos; descomposición del cambio de CPA; desgloses en vivo con caché; estados de dato en toda la UI; frescura visible; exportación CSV; multi-moneda según ADR-020.
@@ -158,6 +163,10 @@ Plantilla de cada fase: (1) objetivo y alcance · (2) requisitos funcionales y n
 9. **Dependencias para F3.** Catálogo y servicio de consultas estables; perfiles y objetivos KPI cargados para los clientes del piloto.
 
 ### 4.4 F3 — Auditoría, índices de salud y alertas (cierra el MVP)
+
+> **Estado (2026-10-24): motor de auditoría e índice de salud implementados y probados con datos sintéticos; faltan las alertas y notificaciones (TD-21) y el piloto.**
+> - ✅ Motor determinista (función pura con huella de entradas): 15 reglas en 10 categorías con parámetros validados por esquema, elegibilidad, muestra mínima y tres salidas; perfiles por objetivo; referencias internas (objetivo del cliente → línea base → mediana de la cuenta); control de falsos descubrimientos (Benjamini-Hochberg); severidad por impacto y prioridad; ciclo de vida con `finding_events`; `health-v1` con cinco subíndices, cobertura y "Datos insuficientes"; configuración por organización y cliente; ejecución tras cada sincronización y a mano; vista de salud y hallazgos en el dashboard.
+> - Criterios: CA-F3-01, 02, 03 y la parte de ciclo de vida de CA-F3-04 cumplidos con tests; la parte de alertas de CA-F3-04 y CA-F3-05 esperan a TD-21; CA-F3-06 es del piloto.
 
 1. **Objetivo y alcance.** Evaluar automáticamente cada cuenta, campaña, conjunto y anuncio con reglas configurables y un índice de salud explicable, y alertar tras cada sincronización. Calidad de eventos básica.
 2. **Requisitos.**
@@ -284,6 +293,10 @@ Se revisa al cierre de cada fase. Cada entrada indica el impacto y cuándo se pa
 | TD-17 | F1 sync | La reexpresión corre cada 24 h desde que se activa la cuenta, no en la madrugada local | Puede coincidir con horas de más uso de cuota | F1 staging, si el uso de cuota lo pide |
 | TD-18 | F1 sync | El descubrimiento no marca las cuentas que dejan de aparecer; las entidades que Meta deja de listar (borradas o archivadas) se marcan con `deleted_at` sin distinguir el motivo | Una cuenta sin acceso falla con un error de permisos en vez de mostrarse como "sin acceso" | F2 (estado de la cuenta en la UI) |
 | TD-19 | F1 sync | ~~`token_validation` usa `debug_token` con el token de la app y `appsecret_proof`, sin confirmar que Meta lo acepte~~ **Resuelto el 2026-10-24:** el spike lo confirmó con una llamada real. La "lectura mínima" de API_INTEGRATIONS §1.4 la sigue haciendo el descubrimiento justo después | — | — |
+| TD-20 | F3 | Reglas previstas aplazadas: saturación (necesita el alcance semanal), audiencias compartidas (leer `targeting`), riesgo de inversión (`spend_cap`) y, en medición, píxel, CAPI y EMQ | Menos diagnósticos que el catálogo previsto | F3 piloto y tras V-14 |
+| TD-21 | F3 | Sin alertas ni notificaciones (tipos del requisito 8, políticas, email, resumen), sin marcas "útil / no útil" y sin interfaz para decidir hallazgos ni para editar la configuración y los objetivos KPI (la API existe) | Los hallazgos solo se ven en el dashboard | F3 (siguiente paso) |
+| TD-22 | F3 | Umbrales, pesos y piso de estabilidad por defecto sin calibrar con datos reales (complementa TD-01) | Falsos positivos o negativos en el piloto | Piloto de F3 |
+| TD-23 | F2 | Analítica sin conversión de monedas (opcional en ADR-020), alcance de las ventanas estándar 7/14/28 días, anotaciones de cambios, desgloses en vivo ni perfiles KPI editables; p95 sin medir con el dataset de referencia | Vistas menos completas que el plan de F2 | Cierre de F2 |
 
 ## 7. Supuestos de capacidad
 

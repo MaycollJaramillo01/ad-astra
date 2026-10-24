@@ -7,14 +7,17 @@ import {
   adAccounts,
   ads,
   auditLog,
+  auditRuns,
   campaigns,
   clientConsents,
+  healthScores,
   insightsDaily,
   jobs,
   metaConnections,
   metaRateState,
   syncRuns,
 } from '../src/db/schema.ts';
+import { createAuditHandler } from '../src/modules/audit/service.ts';
 import { addDays, localDate, monthRange } from '../src/modules/meta/insights.ts';
 import {
   createSyncHandlers,
@@ -124,14 +127,18 @@ async function setup(opts: { token?: string; act?: string; scopes?: string[] } =
     }),
     'info',
   );
-  const handlers = createSyncHandlers({
-    db,
-    cipher,
-    meta: { appId, appSecret },
-    log,
-    fetch: fake.fetch,
-    pace: false,
-  });
+  // Como en el tick real: la sincronización y el motor de auditoría que se encola tras ella.
+  const handlers = {
+    ...createSyncHandlers({
+      db,
+      cipher,
+      meta: { appId, appSecret },
+      log,
+      fetch: fake.fetch,
+      pace: false,
+    }),
+    audit: createAuditHandler(db),
+  };
   const q = <T>(fn: (tx: Tx) => Promise<T>) => withContext(db, { tenantId }, fn);
 
   const s = {
@@ -293,7 +300,19 @@ describe('sincronización de una cuenta', () => {
       isFinal: false,
       dataFlags: ['immature'],
     });
-    expect(rows.find((r) => r.level === 'account')?.entityMetaId).toBe(s.act);
+    expect(rows.find((r) => r.level === 'account')).toMatchObject({
+      entityMetaId: s.act,
+      campaignMetaId: null,
+    });
+    // Cada fila guarda sus padres: así se desglosa campaña → conjuntos → anuncios.
+    expect(rows.find((r) => r.level === 'ad' && r.entityMetaId === '3003')).toMatchObject({
+      campaignMetaId: '1002',
+      adsetMetaId: '2002',
+    });
+    expect(rows.find((r) => r.level === 'adset' && r.entityMetaId === '2001')).toMatchObject({
+      campaignMetaId: '1001',
+      adsetMetaId: '2001',
+    });
 
     const entityRuns = await s.q((tx) =>
       tx.select().from(campaigns).where(eq(campaigns.adAccountId, s.accountId)),
@@ -321,6 +340,17 @@ describe('sincronización de una cuenta', () => {
     // Paginación por cursor (páginas de 2): muchas llamadas, ninguna a la URL `next` con el token.
     expect(byKind.insights_restatement?.apiCalls).toBeGreaterThan(4);
     expect(s.fake.calls.every((c) => c.path !== '/next')).toBe(true);
+
+    // Tras los Insights, el motor de auditoría evaluó la cuenta y guardó su salud.
+    const audits = await s.q((tx) =>
+      tx.select().from(auditRuns).where(eq(auditRuns.adAccountId, s.accountId)),
+    );
+    expect(audits.length).toBeGreaterThan(0);
+    expect(audits.every((r) => r.status === 'succeeded' && r.trigger === 'post_sync')).toBe(true);
+    const scored = await s.q((tx) =>
+      tx.select().from(healthScores).where(eq(healthScores.adAccountId, s.accountId)),
+    );
+    expect(scored.map((h) => h.entityLevel)).toContain('account');
 
     // Segunda vuelta con los mismos datos: mismas filas, mismos valores.
     const before = comparable(rows);

@@ -4,7 +4,7 @@
 
 ## 0. Estado de implementación (2026-10-24)
 
-La fuente de verdad es `src/db/schema.ts` más las migraciones de `migrations/`: `0000_init.sql` y `0002_sync.sql` (generadas y revisadas; la segunda, retocada a mano para particionar `insights_daily`), y `0001_rls.sql` y `0003_sync_rls.sql` (aislamiento y particiones, escritas a mano). El resto de este documento es el diseño completo; aquí se indica qué existe ya y en qué difiere del boceto.
+La fuente de verdad es `src/db/schema.ts` más las migraciones de `migrations/` (de `0000` a `0006`): `0000_init.sql` y `0002_sync.sql` (generadas y revisadas; la segunda, retocada a mano para particionar `insights_daily`), y `0001_rls.sql` y `0003_sync_rls.sql` (aislamiento y particiones, escritas a mano). El resto de este documento es el diseño completo; aquí se indica qué existe ya y en qué difiere del boceto.
 
 | Implementado | Diferencia con el boceto |
 |---|---|
@@ -19,7 +19,13 @@ La fuente de verdad es `src/db/schema.ts` más las migraciones de `migrations/`:
 | `insights_daily`, particionada por mes | PK `(tenant_id, level, entity_meta_id, date)`; particiones de 2023-01 a 2028-12 y `default` (TD-14), **sin privilegios para `app_rw`**: solo se accede por la tabla madre, que tiene RLS |
 | `ad_accounts`: `backfill_months` (13 por defecto, 0–37), `last_discovered_at`, `last_entities_sync_at`, `last_insights_sync_at` | Estado de la sincronización visible en la API |
 | `jobs`, `meta_rate_state` (sistema, sin RLS) | `jobs.payload` solo lleva identificadores (lo comprueba un test). Claves de deduplicación `connection:<id>:<tipo>` y `account:<id>:<tipo>`. Ámbitos del gobernador `<app_id>\|app`, `<app_id>\|insights` y `<app_id>\|account:act_…`, porque Meta limita por app |
-| Pendiente (F1 resto, F2–F3) | `meta_api_calls`, `creatives`, `entity_changes`, `meta_activities`, `kpi_*`, `rule_configs`, `finding_events`, `health_scores`, `notification_*` |
+| `insights_daily`: `campaign_meta_id`, `adset_meta_id` (`0004_insights_parents.sql`) | Padres de cada fila para desglosar campaña → conjuntos → anuncios aunque la entidad ya no se liste en Meta; índices por padre |
+| `audit_runs`: `as_of`, `input_hash`, `stats`, `error` (`0005_audit.sql`) | Día evaluado y huella SHA-256 de las entradas: misma huella, mismo resultado |
+| `findings`: `category`, `profile`, `explanation`, `recommendation_text`, `engine_version`, `window_start`, `window_end`, `last_audit_run_id`, `clear_runs`, `resolved_at` | Hallazgos del motor con su ventana y su ciclo de vida (se resuelven solos tras N evaluaciones limpias) |
+| `finding_events` (nueva) | Historial de cada hallazgo (`opened`, `updated`, `resolved`, `reopened`, `decided`), **solo inserción** como `audit_log` (`0006_audit_rls.sql`) |
+| `health_scores` | PK `(tenant_id, entity_level, entity_meta_id, date, formula_version)`; puntuación null = datos insuficientes; componentes en jsonb para recalcularla |
+| `audit_configs` (nueva) | Sustituye a `rule_configs` y `kpi_targets` (ADR-023): un parche jsonb por organización (`client_id` null) o por cliente, único con `NULLS NOT DISTINCT` |
+| Pendiente (F1 resto, F3) | `meta_api_calls`, `creatives`, `entity_changes`, `meta_activities`, `notification_*` |
 
 ## 1. Convenciones
 

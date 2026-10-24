@@ -11,8 +11,10 @@ import {
 } from 'fastify-type-provider-zod';
 import type { Logger } from 'pino';
 import type { Db } from './db/client.ts';
+import { auditEngineRoutes } from './modules/audit/engine.routes.ts';
 import { auditRoutes } from './modules/audit/routes.ts';
 import { catalogRoutes } from './modules/catalog/routes.ts';
+import { insightsRoutes } from './modules/insights/routes.ts';
 import { connectionRoutes } from './modules/meta/connections.routes.ts';
 import { tickRoutes } from './modules/meta/tick.routes.ts';
 import { clientRoutes } from './modules/tenancy/clients.routes.ts';
@@ -109,6 +111,8 @@ export async function buildApp({
   await app.register(connectionRoutes, { db, cipher });
   await app.register(catalogRoutes, { db });
   await app.register(auditRoutes, { db });
+  await app.register(auditEngineRoutes, { db });
+  await app.register(insightsRoutes, { db });
   await app.register(tickRoutes, { config, db, cipher });
   return app;
 }

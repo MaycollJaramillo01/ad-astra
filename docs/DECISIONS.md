@@ -257,3 +257,11 @@ El responsable aprobó el plan maestro el **2026-10-23**: las decisiones pasan a
 - **Alternativas:** devolver `0` o `null` sin semántica (es lo que hacen los repositorios evaluados y produce diagnósticos erróneos).
 - **Consecuencias:** las respuestas de la API son algo más verbosas; el catálogo de métricas debe declarar el estado de cada fuente.
 - **Revisar si:** nunca: es un principio.
+
+## ADR-023 — Motor de auditoría: función pura, cinco subíndices y una sola configuración
+
+- **Contexto:** F3 pide un motor determinista, configurable y explicable (ARCHITECTURE §6.5 y §6.6), y el encargo fija los subíndices de eficiencia, estabilidad, entrega, medición y fatiga y exige benchmarks internos en lugar de valores universales.
+- **Decisión:** el motor es una función pura `runAudit(datos, configuración) → hallazgos + salud`; la BD solo carga y guarda, y cada ejecución guarda la huella de sus entradas. El índice `health-v1` tiene esos cinco subíndices; el volumen y la estructura del diseño inicial pasan a ser reglas (R-PERF-003, R-STR-011). Las referencias son siempre el objetivo del cliente, la línea base propia o la mediana de la cuenta. La configuración (ventanas, umbrales, pesos, objetivos y parámetros por regla) vive en una sola tabla `audit_configs` validada por esquema, con herencia por defecto ← organización ← cliente, en lugar de `rule_configs` y `kpi_targets` separadas.
+- **Alternativas:** reglas con acceso directo a la BD (difíciles de probar y de reproducir); siete componentes de salud (volumen y estructura duplican lo que ya dicen dos reglas); umbrales fijos por vertical (no hay datos que los respalden y el encargo los excluye).
+- **Consecuencias:** los casos de prueba son datos sintéticos en memoria (rápidos y deterministas); cambiar una fórmula exige subir `formula_version` o la versión de la regla; los objetivos KPI se editan como parte de la configuración (falta su interfaz, TD-21).
+- **Revisar si:** el piloto muestra que el volumen o la estructura deberían pesar en la nota, o si hace falta historial de cambios de configuración más fino que el registro de auditoría.

@@ -55,3 +55,24 @@ export async function api<T>(
   }
   return data as T;
 }
+
+/** Descarga un archivo de la API (p. ej. un CSV) con la misma sesión y organización activa. */
+export async function download(path: string): Promise<void> {
+  const tenant = getActiveTenant();
+  const res = await fetch(path, {
+    credentials: 'same-origin',
+    headers: tenant ? { 'x-tenant-id': tenant } : {},
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    throw new ApiError(res.status, data?.title ?? `Error ${res.status}`, data?.detail);
+  }
+  const name =
+    /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? 'export.csv';
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+}

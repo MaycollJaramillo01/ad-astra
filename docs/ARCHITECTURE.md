@@ -80,13 +80,18 @@ src/
     catalog/              ✅ cuentas (lectura, asignación, activación de la sincronización e
                              historial de sync_runs) y campañas
                           ⏳ creatividades, cambios de configuración
-    audit/                ✅ hallazgos, recomendaciones y registro de eventos (consulta y decisión)
-                          ⏳ motor de reglas (F3)
-    insights/ health/ alerts/ notifications/   ⏳ F2–F3
+    insights/             ✅ catálogo único de métricas (catalog.ts, compartido con la web),
+                             servicio de consultas (report.ts) y exportación CSV auditada
+    audit/                ✅ motor de auditoría determinista (stats, model, context, rules,
+                             health, engine), persistencia y ciclo de vida (service.ts), API;
+                             hallazgos, recomendaciones y registro de eventos (consulta y decisión)
+                          ⏳ alertas y notificaciones (TD-21)
+    alerts/ notifications/   ⏳ F3
     ai/                   ⏳ F4
     optimization/         ⏳ F5
     forecasting/          ⏳ F6
-web/src/                  ✅ SPA: login con Google, organización activa, clientes, cuentas, conexiones
+web/src/                  ✅ SPA: login con Google, organización activa, clientes, cuentas, conexiones,
+                             analítica (dashboard.tsx, chart.tsx) y auditoría (audit.tsx)
 migrations/               ✅ SQL generado y revisado; 0001_rls.sql y 0003_sync_rls.sql con el aislamiento
 scripts/worker.ts         ✅ tick en local (pnpm dev:worker)
 test/                     ✅ integración y seguridad contra Postgres real
@@ -192,7 +197,7 @@ Cada bloque (un nivel de Insights, un tipo de entidad) se lee entero y se escrib
 
 ### 6.4 Métricas (catálogo determinista)
 
-- El catálogo vive en `packages/shared/metrics` y define, por métrica: id, nombre, fórmula, unidad, dirección ("menor es mejor"), aditividad, niveles válidos y fuente (campo de Meta o derivada).
+- El catálogo vive en `src/modules/insights/catalog.ts` (sin dependencias: lo importan la API y la web) y define, por métrica: id, nombre, fórmula, unidad, dirección ("menor es mejor"), aditividad, niveles válidos y fuente (campo de Meta o derivada).
 - **Ratios de sumas:** `CPM = 1000·Σgasto/Σimpresiones`, `CPC (enlace) = Σgasto/Σclics_enlace`, `CTR (enlace) = Σclics_enlace/Σimpresiones`, `CPR = Σgasto/Σresultados`, `ROAS = Σvalor_compra/Σgasto`. Nunca se promedian ratios de filas.
 - **No aditivas:** `alcance` y `frecuencia` (= impresiones/alcance) solo para el grano consultado a Meta. Un rango arbitrario de días muestra "no disponible", salvo las ventanas estándar precalculadas (7, 14 y 28 días).
 - **Estados de dato:** `available`, `estimated` (por ejemplo, el alcance o los rankings de calidad, que Meta estima), `unavailable` (no devuelto, o fuera de la ventana permitida), `not_applicable` (por ejemplo, ROAS sin valor de compra), `immature` (días recientes con conversiones aún por llegar).
@@ -233,30 +238,62 @@ type RuleOutcome =
 
 **Cada hallazgo incluye:** evidencia (valores, periodo, referencia y su origen, umbral, tamaño de muestra), impacto estimado (método y moneda), confianza (0–1 y etiqueta), severidad, prioridad, recomendación (plantilla con parámetros), versión de la regla y huella para deduplicar.
 
-**Confianza estadística.** Las reglas sobre conteos usan pruebas de Poisson o Gamma-Poisson; las de tasas, Beta-Binomial o Wilson; las de configuración son deterministas (confianza 1). Cuando una misma regla se evalúa sobre cientos de entidades en una ejecución se controla la tasa de falsos descubrimientos (Benjamini-Hochberg, q = 0,10) antes de abrir hallazgos de alta severidad.
+**Estado (2026-10-24): implementado** en `src/modules/audit/`: `stats.ts` (estadística), `model.ts` (taxonomía, perfiles y configuración), `context.ts` (ventanas, sumas, referencias y benchmarks internos), `rules.ts` (catálogo), `health.ts` (salud), `engine.ts` (función pura), `service.ts` (carga, persistencia y ciclo de vida) y `engine.routes.ts` (API). Decisiones en ADR-023.
 
-**Prioridad v1:** `prioridad = peso_severidad × confianza × min(1, impacto / gasto_ventana_cuenta)`, con pesos crítica 1,0 · alta 0,7 · media 0,4 · baja 0,2. Ajustable tras el piloto.
+**Taxonomía.** Diez categorías: eficiencia, rendimiento, estabilidad, fatiga creativa, entrega, estructura, atribución, medición, cambios bruscos y calidad de datos. Severidad: info, baja, media, alta o crítica. Las reglas que estiman impacto la gradúan por su parte del gasto de la cuenta en la ventana (crítica ≥ 25 %, alta ≥ 10 %, media ≥ 3 %, configurable) sin bajar del mínimo propio de la regla. Confianza de 0 a 1: probabilidad a posteriori, 1 − p o 1 en las reglas deterministas; etiqueta alta ≥ 0,9, media ≥ 0,7, baja por debajo.
 
-**Catálogo inicial (v1, F3):**
+**Perfiles por objetivo** (orden de detección: objetivo de optimización del conjunto y su evento promocionado → tipo de resultado de Meta → objetivo de la campaña):
 
-| ID | Categoría | Dispara cuando | Muestra mínima | Impacto estimado | Recomendación tipo |
-|---|---|---|---|---|---|
-| R-EFF-001 | Eficiencia | CPR posterior > objetivo × (1 + tolerancia) con P > 0,8 | Gasto ≥ 2 × CPR objetivo | Gasto en exceso = gasto − resultados × CPR objetivo | Revisar puja, audiencia y creatividad; redistribuir |
-| R-EFF-002 | Eficiencia | Gasto sin resultados: P(0 resultados \| gasto/CPR_ref) < 0,05 | Gasto ≥ 1 × CPR de referencia | Gasto de la ventana | Verificar seguimiento y destino; pausar si persiste |
-| R-PERF-003 | Rendimiento | Resultados 7 d < esperados (gasto × tasa base de 28 d), prueba de Poisson | Esperados ≥ 5 | Resultados perdidos × CPR | Diagnóstico con la descomposición del CPA |
-| R-STAB-004 | Estabilidad | Coeficiente de variación diario del CPR (14 d) > umbral | ≥ 10 días con ≥ 1 resultado | — (riesgo) | Consolidar o estabilizar presupuesto |
-| R-FAT-005 | Fatiga creativa | Frecuencia > f_max del perfil y CTR de enlace de la 2.ª mitad del periodo < 1.ª mitad − x %; o señal `creative_fatigue` de Meta | ≥ 1000 impresiones por mitad | Aumento proyectado del CPR × gasto | Rotar creatividades |
-| R-SAT-006 | Saturación | Frecuencia ↑, alcance incremental ↓ y CPM ↑ (7 d contra 7 d) | ≥ 5000 impresiones/semana | — | Ampliar audiencia o renovar |
-| R-DEL-007 | Entrega | Entidad `ACTIVE` con 0 impresiones en 24–48 h; incluye `issues_info` | — (determinista) | Gasto diario planificado no ejecutado | Revisar rechazos, pujas y presupuesto |
-| R-DEL-008 | Entrega | Bid o cost cap < CPR real posterior (portado de arcbaslow) | ≥ 3 resultados en 14 d | — | Subir el límite o cambiar de estrategia |
-| R-DEL-009 | Entrega / aprendizaje | `learning_stage_info` = FAIL, o presupuesto semanal / CPR < 50 eventos | — | — | Consolidar o subir presupuesto |
-| R-STR-010 | Estructura | ≥ k conjuntos activos del mismo objetivo con < 50 eventos/semana cada uno | — | — | Consolidar (Advantage+ cuando aplique) |
-| R-STR-011 | Estructura | Conjuntos que comparten audiencias personalizadas en la configuración (no es un solapamiento real de usuarios) | — | — | Excluir audiencias o consolidar |
-| R-ATT-012 | Atribución | `attribution_setting` heterogéneo entre conjuntos comparables; series que cruzan los cambios de 2026-01-12 o marzo de 2026 | — | — | Homogeneizar; interpretar con cautela |
-| R-TRK-013 | Seguimiento | Evento optimizado con 0 eventos en 7 d y clics > umbral; dataset sin eventos en 24 h; cobertura de CAPI < objetivo; EMQ < 6 | Clics ≥ 100 | Gasto de las campañas afectadas | Revisar píxel, CAPI y deduplicación |
-| R-CHG-014 | Cambios bruscos | Variación diaria > max(piso, k × mediana \|Δ\|) (umbral adaptativo portado de fortytwode) | ≥ 14 días de historia | — | Revisar el registro de actividad correlacionado |
-| R-RISK-015 | Riesgo de inversión | Gasto proyectado > límite de gasto de la cuenta o del presupuesto total; concentración HHI > umbral en entidades con mala salud | — | Gasto proyectado excedente | Ajustar presupuestos |
-| R-DATA-016 | Calidad de datos | Relaciones imposibles (alcance > impresiones, clics > impresiones), días sin sincronizar | — | — | Interno: revisar la ingesta |
+| Perfil | Señales | Evento clave | Costo del evento |
+|---|---|---|---|
+| `awareness` | REACH, IMPRESSIONS, AD_RECALL_LIFT · OUTCOME_AWARENESS | Impresiones | CPM |
+| `traffic` | LINK_CLICKS, LANDING_PAGE_VIEWS · OUTCOME_TRAFFIC | Visitas a la página (clics en el enlace si no hay) | Costo por visita o CPC |
+| `engagement` | THRUPLAY, POST_ENGAGEMENT · OUTCOME_ENGAGEMENT | Resultados de Meta | Costo por resultado |
+| `messages` | CONVERSATIONS o resultado de mensajería | Conversaciones iniciadas | Costo por conversación |
+| `leads` | LEAD_GENERATION, QUALITY_LEAD, OFFSITE_CONVERSIONS + LEAD · OUTCOME_LEADS | Clientes potenciales | Costo por cliente potencial |
+| `sales` | OFFSITE_CONVERSIONS o VALUE + PURCHASE · OUTCOME_SALES | Compras (y ROAS con valor) | Costo por compra |
+| `app` | APP_INSTALLS · OUTCOME_APP_PROMOTION | Instalaciones | Costo por instalación |
+| `other` | el resto | Resultados de Meta | Costo por resultado |
+
+**Ventanas** (configurables): evaluación de 7 días hasta ayer (día local de la cuenta); ventana madura = la evaluación sin sus 3 últimos días, para las pruebas de conversiones; línea base = los 28 días anteriores; estabilidad y anomalías, 14 días; entrega, 2 días; fatiga, la semana actual frente a la anterior.
+
+**Referencias: benchmarks internos, nunca valores "del sector".** Objetivo del cliente (`targets` de la configuración, por perfil y moneda) → línea base propia (≥ 5 eventos; ≥ 1000 impresiones en reconocimiento) → mediana de la cuenta para el mismo nivel y perfil (≥ 3 entidades con muestra). Cada hallazgo guarda la fuente usada. Los umbrales de las reglas son parámetros estadísticos o metodológicos (α, probabilidad mínima, tolerancia), no niveles de mercado; el único número externo es el de 50 eventos semanales de la fase de aprendizaje, que publica Meta, y también es configurable.
+
+**Catálogo v1 (15 reglas):**
+
+| ID | Categoría | Niveles · perfiles | Dispara cuando (método) | Muestra mínima | Parámetros por defecto | Impacto |
+|---|---|---|---|---|---|---|
+| R-EFF-001 | Eficiencia | campaña, conjunto, anuncio · todos | P(costo > ref · (1 + tolerancia)) ≥ prob. mínima; Gamma-Poisson con a priori Gamma(k, k·ref) | gasto ≥ 2 × costo de referencia (≥ 1000 impresiones en reconocimiento) | tolerancia 0,2 · prob. 0,8 · k 5 | gasto − eventos × ref |
+| R-EFF-002 | Eficiencia | ídem · todos salvo reconocimiento | 0 eventos y P(0 \| λ = gasto ÷ ref) = e^−λ < α | λ ≥ 1 | α 0,05 | gasto |
+| R-PERF-003 | Rendimiento | ídem · salvo reconocimiento | P(X ≤ observados \| esperados = gasto × tasa de la línea base) < α y caída ≥ 20 % | línea base ≥ 10 eventos; esperados ≥ 5 | α 0,05 · caída 0,2 | (esperados − observados) × costo base |
+| R-EFF-004 | Eficiencia | ídem · ventas | P(ROAS < ref · (1 − tolerancia)) ≥ prob.; Gamma-Poisson de compras con el valor medio | ≥ 3 compras (ventana o base) | tolerancia 0,2 · prob. 0,8 | gasto × ROAS ref − valor |
+| R-RATE-005 | Rendimiento | conjunto, anuncio · salvo reconocimiento | CTR del enlace menor que en la línea base: dos proporciones unilateral, p < α y caída ≥ 15 % | ≥ 2000 impresiones en cada periodo | α 0,05 · caída 0,15 | — |
+| R-STAB-006 | Estabilidad | campaña, conjunto · todos | CV del costo diario sin ruido de Poisson (√max(0, CV² − 1/media diaria)) > max(piso, factor × mediana de la cuenta) | ≥ 10 días con eventos y ≥ 3 comparables | piso 0,3 · factor 1,5 | — |
+| R-FAT-007 | Fatiga | conjunto, anuncio · todos | CTR de la semana menor que la anterior (p < α, caída ≥ 15 %) y frecuencia diaria +10 % (o > el máximo del cliente, opcional) | ≥ 1000 impresiones por semana | α 0,05 | — |
+| R-DEL-008 | Entrega | campaña, conjunto, anuncio · todos | activa (ella y sus padres) sin impresiones en 2 días habiendo entregado o con presupuesto; o rechazada, con problemas o sin facturación | determinista | — | presupuesto × días |
+| R-DEL-009 | Entrega | conjunto · salvo reconocimiento | límite de costo o de puja por debajo del costo real: P(costo > límite) ≥ 0,8 | ≥ 3 eventos en 14 días | — | — |
+| R-DEL-010 | Entrega | conjunto · salvo reconocimiento | `learning_stage_info` = FAIL, o presupuesto semanal ÷ costo de referencia < eventos de aprendizaje | determinista | eventos de aprendizaje 50 | — |
+| R-STR-011 | Estructura | campaña · salvo reconocimiento | ≥ 3 conjuntos activos del mismo perfil y todos con < 50 eventos por semana | determinista | — | — |
+| R-ATT-012 | Atribución | campaña · todos | más de un `attribution_setting` entre sus conjuntos | determinista | — | — |
+| R-TRK-013 | Medición | campaña, conjunto · clientes potenciales, ventas, app | ≥ 100 clics, 0 conversiones y e^−(clics × conversión por clic de la base) < α | ≥ 100 clics; base ≥ 5 conversiones | α 0,01 | gasto |
+| R-CHG-014 | Cambios bruscos | cuenta, campaña · todos | z robusta de Iglewicz-Hoaglin (mediana y MAD) del gasto, el CPM o el CTR de ayer ≥ umbral y cambio ≥ 30 %; solo entidades activas, con la historia desde su primera entrega y los días sin entrega a 0 | ≥ 14 días de historia | umbral 3,5 | — |
+| R-DATA-015 | Calidad de datos | cuenta | alcance > impresiones, clics > impresiones o clics en el enlace > clics; días sin datos con historia de entrega diaria | determinista | — | — |
+
+Aplazadas del catálogo previsto (TD-20): saturación (necesita el alcance semanal de Meta: el diario no se suma), audiencias compartidas (necesita leer `targeting`), riesgo de inversión (falta el `spend_cap`) y, en medición, píxel, CAPI y EMQ (V-14).
+
+**Control de falsos descubrimientos.** Cada prueba estadística de la ejecución entra con su valor p, también las que no disparan. Se aplica Benjamini-Hochberg con q = 0,10 (configurable): un hallazgo de severidad alta o crítica que no lo supera se abre como medio y lo indica en su evidencia.
+
+**Prioridad:** `peso_severidad × confianza × min(1, impacto ÷ gasto de la cuenta en la ventana)`, con pesos crítica 1,0 · alta 0,7 · media 0,4 · baja 0,2 · info 0,1. Sin impacto estimado se asume 0,25 (configurable).
+
+**Ciclo de vida.** Huella `regla:nivel:entidad`. Un hallazgo se abre, se actualiza en cada evaluación (cambio de severidad → evento) y se resuelve solo tras 2 evaluaciones limpias seguidas (configurable; "datos insuficientes" no cuenta como limpia). Si la condición vuelve, se abre uno nuevo como reapertura. Lo descartado por una persona no se reabre mientras no cambie la versión de la regla. Cada transición y cada decisión queda en `finding_events`, de solo inserción.
+
+**Evidencia de cada hallazgo** (CA-F3-02): métricas, ventana, referencia con su fuente y tamaño, umbral y parámetros usados, muestra, valor p, resultado del control de falsos descubrimientos, método, impacto con su método, explicación en lenguaje natural, confianza, regla y su versión, y `engine_version`.
+
+**Determinismo.** `runAudit(input, config)` es una función pura (no lee el reloj ni la BD). La ejecución guarda la huella SHA-256 de las entradas canónicas, la configuración y `engine_version` (`audit-1.0.0+<huella del catálogo>`): mismas entradas, mismo resultado (test).
+
+**Configuración** (`audit_configs`, validada con zod): por defecto ← organización ← cliente. Ventanas, q, resolución, severidad por impacto, pesos y escala de la salud, objetivos por perfil y moneda y, por regla, `enabled` y `params` (cada regla valida los suyos). Owner y admin cambian la organización; owner, admin y manager, sus clientes. `GET /v1/audit/catalog` publica el catálogo con el esquema JSON de los parámetros.
+
+**Ejecución.** Tras cada sincronización de Insights (incremental o reexpresión) se encola un trabajo `audit` por cuenta (deduplicado). También se lanza a mano con `POST /v1/ad-accounts/:id/audit`, con un `asOf` opcional para backtests.
 
 Notas de dominio que las reglas deben respetar: con Advantage+ audience la segmentación son sugerencias (no se audita como límite); las campañas Advantage+ tienen el presupuesto a nivel de campaña; desde v24 un presupuesto diario puede gastarse hasta un 75 % más en un día dentro del tope semanal (fuente secundaria, V-11), así que no es una alerta por sí mismo; la fase de aprendizaje necesita unos 50 eventos de optimización en 7 días.
 
@@ -264,47 +301,45 @@ Notas de dominio que las reglas deben respetar: con Advantage+ audience la segme
 
 **Objetivo:** una puntuación de 0 a 100 por entidad, explicable componente a componente, adaptada al perfil y que **no castiga la falta de datos**.
 
-**1. Valor de referencia de cada componente** (en este orden): objetivo del cliente (`kpi_targets`) → línea base propia de la entidad (28 días previos) → mediana de la cuenta para el mismo perfil. La fuente usada se guarda.
+**Estado (2026-10-24): implementado** (`src/modules/audit/health.ts`) con cinco subíndices: eficiencia, estabilidad, entrega, medición y fatiga. El volumen y la estructura del diseño inicial quedan como reglas (R-PERF-003, R-STR-011), no como subíndices (ADR-023).
+
+**1. Referencia de cada componente:** la misma cadena que las reglas (objetivo del cliente → línea base propia → mediana de la cuenta), con la fuente guardada.
 
 **2. Estimación con contracción bayesiana** (evita conclusiones con muestras pequeñas):
-- Componentes de costo por resultado: tasa de resultados por unidad de gasto `λ ~ Gamma(α0 = k, β0 = k · CPR_ref)`; a posteriori `Gamma(α0 + resultados, β0 + gasto)`; `CPR_est = (β0 + gasto) / (α0 + resultados)`; intervalo del 80 % invirtiendo los cuantiles de λ. Por defecto k = 5.
-- Componentes de tasa (CTR, CVR): `Beta(k·p_ref, k·(1 − p_ref))` con k = 2000 impresiones equivalentes.
-- **Evaluable** si los resultados esperados `gasto / CPR_ref ≥ 1` (o ≥ 1000 impresiones para las tasas). Si no, el componente queda "insuficiente" y **se excluye**: no puntúa 0.
+- Costo del evento clave: `λ ~ Gamma(k, k · costo_ref)`, a posteriori `Gamma(k + eventos, k · costo_ref + gasto)`; estimación `(k · costo_ref + gasto) / (k + eventos)` e intervalo del 80 % invirtiendo los cuantiles de λ. k = 5. En ventas con valor de compra, ROAS con la misma Gamma sobre las compras y el valor medio.
+- Tasas: Beta con k ensayos "virtuales" a la tasa de referencia: k = 200 clics para la conversión por clic y k = 2000 impresiones para el CTR.
+- **Evaluable** con un evento esperado al costo de referencia (1000 impresiones en reconocimiento), 7 días con eventos (estabilidad), 100 clics (medición) o 1000 impresiones por semana (fatiga). Si no, el componente queda "insuficiente" y **se excluye**: no puntúa 0.
 
-**3. Normalización a 0–100** con escala logarítmica alrededor del objetivo:
+**3. Normalización a 0–100:**
 ```
-q = referencia / estimación        (menor es mejor: CPR, CPM, CPC)
-q = estimación / referencia        (mayor es mejor: CTR, ROAS, CVR)
-s = clamp(80 + 40 · log2(q), 0, 100)
+s = clamp(80 + 40 · log2(q), 0, 100)          q > 1 es mejor que la referencia
 ```
-En objetivo → 80; un 41 % mejor → 100; el doble de costo → 40; cuatro veces el costo → 0. Los parámetros A = 80 y B = 40 son configurables y versionados.
+En la referencia → 80; un 41 % mejor → 100; la mitad de bueno (el doble de costo) → 40; la cuarta parte → 0. Centro y pendiente son configurables y versionados. La entrega usa una escala lineal porque su referencia es un tope: `s = 100 · min(1, ratio)`.
+
+| Subíndice | Medida | q | awareness | traffic | engagement | messages | leads | sales | app | other |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Eficiencia | Costo del evento clave estimado (ROAS en ventas con valor) | ref ÷ estimación (ROAS: estimación ÷ ref) | 0,40 | 0,45 | 0,45 | 0,40 | 0,40 | 0,40 | 0,40 | 0,45 |
+| Estabilidad | CV del costo diario sin ruido de Poisson (14 días) | max(mediana de la cuenta, piso de R-STAB-006) ÷ CV | 0,15 | 0,15 | 0,15 | 0,15 | 0,15 | 0,15 | 0,15 | 0,15 |
+| Entrega | Gasto ÷ presupuesto de la ventana, o días con entrega ÷ días; × 0,7 con aprendizaje limitado y × 0,5 con problemas de entrega; no aplica si está en pausa | lineal | 0,25 | 0,20 | 0,20 | 0,20 | 0,20 | 0,20 | 0,20 | 0,25 |
+| Medición | Conversiones registradas por clic frente a la referencia (cae si se rompe el seguimiento) | estimación ÷ ref | 0 | 0 | 0 | 0,15 | 0,15 | 0,15 | 0,15 | 0 |
+| Fatiga | Tendencia del CTR del enlace y de la frecuencia diaria, semana actual frente a la anterior | √(CTR_act ÷ CTR_ant × frec_ant ÷ frec_act) | 0,20 | 0,20 | 0,20 | 0,10 | 0,10 | 0,10 | 0,10 | 0,15 |
+
+El piso del CV de referencia (0,3, el parámetro `floor` de R-STAB-006) evita que una variación pequeña hunda la nota cuando la cuenta es casi perfectamente estable.
 
 **4. Agregación:**
 ```
-H = Σ w_c · s_c / Σ w_c          (solo componentes evaluables)
-cobertura = Σ w_c (evaluables) / Σ w_c (todos)
-si cobertura < 0,6  →  H = null   ("Datos insuficientes", nunca "malo")
+H = Σ w_c · s_c / Σ w_c                  (solo componentes evaluables)
+cobertura = Σ w_c (evaluables) / Σ w_c (con peso y aplicables)
+si cobertura < 0,6 o no hubo gasto  →  H = null   ("Datos insuficientes", nunca "malo")
 confianza(H) = cobertura × media ponderada de la confianza de los componentes
 ```
-Confianza de un componente según la anchura relativa del intervalo del 80 %: < 30 % alta, 30–60 % media, > 60 % baja.
+Confianza de un componente según la anchura relativa de su intervalo del 80 %: < 30 % alta (0,9), 30–60 % media (0,6), > 60 % baja (0,3); en estabilidad y fatiga, según los días o las impresiones.
 
 **5. Calificación:** 85–100 excelente · 70–84 buena · 50–69 atención · 0–49 crítica · `null` datos insuficientes.
 
-**Componentes y pesos por defecto (configurables por tenant y cliente):**
+**Cuenta:** media de las puntuaciones de sus campañas ponderada por su gasto en la ventana, con la misma regla de cobertura (sobre el gasto). Sus componentes son la misma media, informativa.
 
-| Componente | Métrica base | sales | leads | messages | traffic | awareness | engagement | app |
-|---|---|---|---|---|---|---|---|---|
-| Eficiencia | CPR del perfil (ROAS en ventas con valor) | 0,30 | 0,35 | 0,35 | 0,35 | 0,35 | 0,35 | 0,35 |
-| Volumen | Resultados frente a los esperados por gasto | 0,15 | 0,15 | 0,15 | 0,10 | 0 | 0,10 | 0,15 |
-| Estabilidad | Coeficiente de variación diario del CPR | 0,10 | 0,10 | 0,10 | 0,10 | 0,10 | 0,10 | 0,10 |
-| Entrega | Ritmo de gasto frente al presupuesto, aprendizaje, ausencia de entrega | 0,15 | 0,15 | 0,15 | 0,15 | 0,20 | 0,15 | 0,15 |
-| Creatividad | Frecuencia frente al umbral, tendencia del CTR, rankings de calidad | 0,10 | 0,10 | 0,10 | 0,15 | 0,20 | 0,15 | 0,10 |
-| Medición | Eventos del objetivo recibidos, cobertura de CAPI, EMQ | 0,10 | 0,05 | 0,05 | 0,05 | 0 | 0 | 0,05 |
-| Estructura | Fragmentación frente a los eventos necesarios para el aprendizaje | 0,10 | 0,10 | 0,10 | 0,10 | 0,15 | 0,15 | 0,10 |
-
-**Cuenta:** `H_cuenta = 0,8 × media ponderada por gasto (7 d) de H_campaña + 0,2 × s_medición_cuenta`, con la misma regla de cobertura.
-
-**Persistencia:** una fila diaria por entidad en `health_scores` con `formula_version`, perfil, ventana, componentes (valor, referencia y su fuente, q, s, peso, estado, confianza, n). La UI muestra el desglose y la fórmula; un test recalcula la puntuación desde los componentes guardados.
+**Persistencia:** una fila diaria por entidad en `health_scores` con `formula_version`, perfil, ventana, puntuación, calificación, cobertura, confianza y componentes (valor, referencia y su fuente, q, s, peso, estado, confianza, n, nota). La web muestra el desglose y la fórmula; un test recalcula cada puntuación desde los componentes guardados.
 
 ### 6.7 Alertas
 

@@ -29,6 +29,27 @@
       "when": 1792855728335,
       "tag": "0003_sync_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792861193396,
+      "tag": "0004_insights_parents",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792877746320,
+      "tag": "0005_audit",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792877759139,
+      "tag": "0006_audit_rls",
+      "breakpoints": true
     }
   ]
 }

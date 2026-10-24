@@ -16,7 +16,13 @@ export const PERMISSIONS = {
   'connections:manage': ADMINS,
   'accounts:read': ALL,
   'accounts:manage': ADMINS,
+  /** Analítica y su exportación (auditada): ver datos es de todos, con el alcance por cliente. */
+  'insights:read': ALL,
   'findings:read': ALL,
+  /** Lanzar el motor de auditoría a mano (también se ejecuta solo tras cada sincronización). */
+  'audit:run': ['owner', 'admin', 'manager', 'analyst'],
+  /** Reglas, umbrales, pesos y objetivos: owner y admin en toda la organización; manager en sus clientes. */
+  'audit:configure': ['owner', 'admin', 'manager'],
   'findings:decide': ['owner', 'admin', 'manager', 'analyst'],
   'recommendations:read': ALL,
   'recommendations:decide': ['owner', 'admin', 'manager'],

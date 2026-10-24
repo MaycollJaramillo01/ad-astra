@@ -14,7 +14,7 @@ import {
   RecommendationsQuery,
 } from '../../contracts.ts';
 import { type Db, first, withContext } from '../../db/client.ts';
-import { adAccounts, auditLog, findings, recommendations } from '../../db/schema.ts';
+import { adAccounts, auditLog, findingEvents, findings, recommendations } from '../../db/schema.ts';
 import { conflict, notFound } from '../../platform/errors.ts';
 import { userEvent } from '../../platform/events.ts';
 import { tenantOf } from '../../platform/http.ts';
@@ -43,6 +43,14 @@ const findingDto = (f: typeof findings.$inferSelect) => ({
   firstSeenAt: iso(f.firstSeenAt),
   lastSeenAt: iso(f.lastSeenAt),
   decisionReason: f.decisionReason,
+  category: f.category,
+  profile: f.profile,
+  explanation: f.explanation,
+  recommendationText: f.recommendationText,
+  engineVersion: f.engineVersion,
+  windowStart: f.windowStart,
+  windowEnd: f.windowEnd,
+  resolvedAt: f.resolvedAt ? iso(f.resolvedAt) : null,
 });
 
 const recommendationDto = (r: typeof recommendations.$inferSelect) => ({
@@ -123,6 +131,14 @@ export async function auditRoutes(fastify: FastifyInstance, { db }: { db: Db }) 
             .where(eq(findings.id, found.f.id))
             .returning(),
         );
+        await tx.insert(findingEvents).values({
+          tenantId: ctx.tenantId,
+          findingId: found.f.id,
+          event: 'decided',
+          actorType: 'user',
+          actorId: ctx.userId,
+          data: { from: found.f.status, to: after.status, reason: request.body.reason },
+        });
         await userEvent(tx, request, {
           action: 'finding.decided',
           targetType: 'finding',

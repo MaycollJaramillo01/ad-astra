@@ -31,6 +31,9 @@ beforeAll(async () => {
   b = await seedTenant(db);
 });
 
+/** Tablas de historial: se insertan y se leen, nunca se cambian ni se borran. */
+const APPEND_ONLY = ['audit_log', 'finding_events'];
+
 describe('cobertura de RLS', () => {
   it('toda tabla con tenant_id tiene RLS activado y forzado, con al menos una política', async () => {
     const { rows } = await db.execute<{
@@ -109,7 +112,7 @@ describe('aislamiento entre tenants', () => {
           sql`select count(*)::int as n from ${table} where tenant_id = ${a.tenantId}`,
         );
         expect(seen.rows[0]?.n, `${t}: select`).toBe(0);
-        if (t === 'audit_log') return; // sin UPDATE ni DELETE: se prueba aparte
+        if (APPEND_ONLY.includes(t)) return; // sin UPDATE ni DELETE: se prueba aparte
         const updated = await tx.execute(
           sql`update ${table} set tenant_id = tenant_id where tenant_id = ${a.tenantId}`,
         );
@@ -197,19 +200,32 @@ describe('políticas especiales', () => {
     expect(seen.map((i) => i.email)).toEqual([outsider.email]);
   });
 
-  it('audit_log es de solo inserción y no admite eventos de otro tenant', async () => {
-    await withContext(db, { tenantId: a.tenantId }, async (tx) => {
-      expect(await pgError(tx.execute(sql`update audit_log set action = 'x'`))).toMatchObject({
-        code: '42501',
-        message: expect.stringMatching(/permission denied/),
-      });
-    });
-    await withContext(db, { tenantId: a.tenantId }, async (tx) => {
-      expect(await pgError(tx.execute(sql`delete from audit_log`))).toMatchObject({
-        code: '42501',
-        message: expect.stringMatching(/permission denied/),
-      });
-    });
+  it('audit_log y finding_events son de solo inserción y no admiten filas de otro tenant', async () => {
+    for (const t of APPEND_ONLY) {
+      for (const statement of [
+        sql`update ${sql.identifier(t)} set tenant_id = tenant_id`,
+        sql`delete from ${sql.identifier(t)}`,
+      ]) {
+        await withContext(db, { tenantId: a.tenantId }, async (tx) => {
+          expect(await pgError(tx.execute(statement)), t).toMatchObject({
+            code: '42501',
+            message: expect.stringMatching(/permission denied/),
+          });
+        });
+      }
+    }
+    expect(
+      await pgError(
+        withContext(db, { tenantId: b.tenantId }, (tx) =>
+          tx.insert(s.findingEvents).values({
+            tenantId: a.tenantId,
+            findingId: a.finding.id,
+            event: 'opened',
+            actorType: 'system',
+          }),
+        ),
+      ),
+    ).toMatchObject({ code: '42501', message: expect.stringMatching(/row-level security/) });
     expect(
       await pgError(
         withContext(db, { tenantId: b.tenantId }, (tx) =>

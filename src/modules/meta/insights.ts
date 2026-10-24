@@ -1,4 +1,5 @@
 import type { Level } from '../../db/schema.ts';
+import { addDays } from '../insights/catalog.ts';
 
 // Conversión de filas de Insights a columnas canónicas (ADR-009, DATABASE_SCHEMA §3.4). Funciones
 // puras y versionadas: si cambia la lógica, sube EXTRACTION_VERSION y un trabajo recalcula
@@ -28,6 +29,8 @@ const integer = (v: unknown): number | null => {
   const d = decimal(v);
   return d === null ? null : Math.round(Number(d));
 };
+
+const str = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
 
 const stats = (v: unknown): ActionStat[] => (Array.isArray(v) ? (v as ActionStat[]) : []);
 
@@ -89,11 +92,7 @@ export function localDate(timeZone: string, at = new Date()): string {
   }).format(at);
 }
 
-export function addDays(day: string, n: number): string {
-  const d = new Date(`${day}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
-}
+export { addDays };
 
 /** Primer y último día del mes que está `monthsBack` meses antes del mes de `today`. */
 export function monthRange(today: string, monthsBack: number): { since: string; until: string } {
@@ -143,6 +142,8 @@ export function toInsightRow(row: Record<string, unknown>, ctx: RowContext) {
     adAccountId: ctx.adAccountId,
     level: ctx.level,
     entityMetaId,
+    campaignMetaId: ctx.level === 'account' ? null : (str(row.campaign_id) ?? null),
+    adsetMetaId: ctx.level === 'adset' || ctx.level === 'ad' ? (str(row.adset_id) ?? null) : null,
     date,
     currency: ctx.currency,
     attributionSetting:

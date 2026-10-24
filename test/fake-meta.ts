@@ -71,8 +71,9 @@ export function createFakeMeta(opts: { appId: string; appSecret: string }) {
       level === 'account'
         ? [{}]
         : (state.edges.get(`${act}/${level === 'ad' ? 'ads' : `${level}s`}`) ?? []).map((e) => ({
-            [`${level}_id`]: e.id,
             campaign_id: e.campaign_id ?? e.id,
+            ...(e.adset_id ? { adset_id: e.adset_id } : {}),
+            [`${level}_id`]: e.id,
           }));
     return days(since, until).flatMap((date) =>
       ids.map((id) => ({

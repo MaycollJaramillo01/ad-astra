@@ -2,4 +2,42 @@
 
 :root {
   color-scheme: light dark;
+  /* Gráficos y estados (skill dataviz, paleta de referencia validada contra estas superficies). */
+  --viz-surface: #ffffff;
+  --viz-series: #2a78d6;
+  --viz-series-wash: rgb(42 120 214 / 0.1);
+  --viz-compare: #898781;
+  --viz-grid: #e1e0d9;
+  --viz-axis: #c3c2b7;
+  --viz-ink-muted: #52514e;
+  --viz-immature: rgb(250 178 25 / 0.12);
+  --status-good: #0ca30c;
+  --status-good-text: #006300;
+  --status-warning: #fab219;
+  --status-critical: #d03b3b;
+  --status-critical-text: #b42323;
+  --status-neutral: #898781;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --viz-surface: #030712;
+    --viz-series: #3987e5;
+    --viz-series-wash: rgb(57 135 229 / 0.12);
+    --viz-grid: #2c2c2a;
+    --viz-axis: #383835;
+    --viz-ink-muted: #c3c2b7;
+    --viz-immature: rgb(250 178 25 / 0.1);
+    --status-good-text: #0ca30c;
+    --status-critical-text: #e66767;
+  }
+}
+
+/* Las tarjetas de definición de métricas usan el popover nativo: centradas y legibles. */
+[popover].metric-info {
+  margin: auto;
+  max-width: min(28rem, calc(100vw - 2rem));
+}
+[popover].metric-info::backdrop {
+  background: rgb(0 0 0 / 0.25);
 }

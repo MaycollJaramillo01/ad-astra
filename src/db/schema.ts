@@ -453,6 +453,10 @@ export const insightsDaily = pgTable(
     adAccountId: uuid('ad_account_id').notNull(),
     level: text('level', { enum: LEVELS }).notNull(),
     entityMetaId: text('entity_meta_id').notNull(),
+    // Padres de la entidad (para desglosar campaña → conjuntos → anuncios sin depender de que
+    // la entidad siga listada en Meta). null en el nivel de cuenta.
+    campaignMetaId: text('campaign_meta_id'),
+    adsetMetaId: text('adset_meta_id'),
     date: date('date').notNull(), // día local de la cuenta
     currency: char('currency', { length: 3 }).notNull(),
     attributionSetting: text('attribution_setting'),
@@ -490,6 +494,8 @@ export const insightsDaily = pgTable(
       foreignColumns: [adAccounts.tenantId, adAccounts.id],
     }),
     index('insights_daily_account_level_date').on(t.tenantId, t.adAccountId, t.level, t.date),
+    index('insights_daily_campaign').on(t.tenantId, t.campaignMetaId, t.level, t.date),
+    index('insights_daily_adset').on(t.tenantId, t.adsetMetaId, t.level, t.date),
     check('insights_daily_level_check', oneOf(sql`${t.level}`, LEVELS)),
   ],
 );
@@ -549,6 +555,12 @@ export const auditRuns = pgTable(
     status: text('status', { enum: ['running', 'succeeded', 'failed'] }).notNull(),
     startedAt: ts('started_at').notNull().defaultNow(),
     finishedAt: ts('finished_at'),
+    /** Último día evaluado (local de la cuenta) y huella de las entradas: misma huella → mismo resultado. */
+    asOf: date('as_of'),
+    inputHash: text('input_hash'),
+    /** Conteos de la ejecución (entidades, evaluaciones, disparos, insuficientes, pruebas, FDR). */
+    stats: jsonb('stats'),
+    error: text('error'),
   },
   (t) => [
     unique('audit_runs_tenant_id_id').on(t.tenantId, t.id),
@@ -583,6 +595,18 @@ export const findings = pgTable(
     impact: jsonb('impact').notNull(),
     evidence: jsonb('evidence').notNull(),
     recommendationKey: text('recommendation_key').notNull(),
+    recommendationText: text('recommendation_text'),
+    // Motor de auditoría (F3): taxonomía, perfil, explicación, versión y ventana evaluada.
+    category: text('category'),
+    profile: text('profile'),
+    explanation: text('explanation'),
+    engineVersion: text('engine_version'),
+    windowStart: date('window_start'),
+    windowEnd: date('window_end'),
+    lastAuditRunId: bigint('last_audit_run_id', { mode: 'number' }),
+    /** Evaluaciones seguidas sin la condición (se resuelve solo al llegar al umbral). */
+    clearRuns: integer('clear_runs').notNull().default(0),
+    resolvedAt: ts('resolved_at'),
     status: text('status', { enum: FINDING_STATUSES }).notNull().default('open'),
     firstSeenAt: ts('first_seen_at').notNull().defaultNow(),
     lastSeenAt: ts('last_seen_at').notNull().defaultNow(),
@@ -648,6 +672,90 @@ export const recommendations = pgTable(
     check('recommendations_action_check', oneOf(sql`${t.actionType}`, RECOMMENDATION_ACTIONS)),
     check('recommendations_source_check', oneOf(sql`${t.source}`, ['rule', 'ai', 'user'])),
     check('recommendations_status_check', oneOf(sql`${t.status}`, RECOMMENDATION_STATUSES)),
+  ],
+);
+
+export const FINDING_EVENTS = ['opened', 'updated', 'resolved', 'reopened', 'decided'] as const;
+
+/** Historial de cada hallazgo (solo inserción): aperturas, cambios de severidad, resoluciones. */
+export const findingEvents = pgTable(
+  'finding_events',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+    tenantId: tenantId(),
+    findingId: uuid('finding_id').notNull(),
+    auditRunId: bigint('audit_run_id', { mode: 'number' }),
+    event: text('event', { enum: FINDING_EVENTS }).notNull(),
+    actorType: text('actor_type', { enum: ['system', 'user'] }).notNull(),
+    actorId: uuid('actor_id'),
+    data: jsonb('data'),
+    at: ts('at').notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.tenantId, t.findingId],
+      foreignColumns: [findings.tenantId, findings.id],
+    }).onDelete('cascade'),
+    index('finding_events_finding').on(t.tenantId, t.findingId, t.at),
+    check('finding_events_event_check', oneOf(sql`${t.event}`, FINDING_EVENTS)),
+    check('finding_events_actor_check', oneOf(sql`${t.actorType}`, ['system', 'user'])),
+  ],
+);
+
+/** Índice de salud diario por entidad (health-v1), con sus componentes para recalcularlo. */
+export const healthScores = pgTable(
+  'health_scores',
+  {
+    tenantId: tenantId(),
+    adAccountId: uuid('ad_account_id').notNull(),
+    entityLevel: text('entity_level', { enum: ['account', 'campaign', 'adset', 'ad'] }).notNull(),
+    entityMetaId: text('entity_meta_id').notNull(),
+    date: date('date').notNull(),
+    formulaVersion: text('formula_version').notNull(),
+    profile: text('profile').notNull(),
+    windowDays: integer('window_days').notNull(),
+    score: numeric('score', { precision: 5, scale: 2 }), // null = datos insuficientes
+    grade: text('grade', {
+      enum: ['excellent', 'good', 'attention', 'critical', 'insufficient'],
+    }).notNull(),
+    confidence: numeric('confidence', { precision: 4, scale: 3 }),
+    coverage: numeric('coverage', { precision: 4, scale: 3 }).notNull(),
+    components: jsonb('components').notNull(),
+    auditRunId: bigint('audit_run_id', { mode: 'number' }).notNull(),
+    computedAt: ts('computed_at').notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.tenantId, t.entityLevel, t.entityMetaId, t.date, t.formulaVersion] }),
+    foreignKey({
+      columns: [t.tenantId, t.adAccountId],
+      foreignColumns: [adAccounts.tenantId, adAccounts.id],
+    }),
+    index('health_scores_account_date').on(t.tenantId, t.adAccountId, t.date),
+    check(
+      'health_scores_grade_check',
+      oneOf(sql`${t.grade}`, ['excellent', 'good', 'attention', 'critical', 'insufficient']),
+    ),
+    check('health_scores_score_check', sql`${t.score} is null or ${t.score} between 0 and 100`),
+  ],
+);
+
+/** Configuración del motor por organización (client_id null) o por cliente; se valida por esquema. */
+export const auditConfigs = pgTable(
+  'audit_configs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: tenantId(),
+    clientId: uuid('client_id'),
+    config: jsonb('config').notNull(),
+    updatedBy: uuid('updated_by').notNull(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    unique('audit_configs_scope').on(t.tenantId, t.clientId).nullsNotDistinct(),
+    foreignKey({
+      columns: [t.tenantId, t.clientId],
+      foreignColumns: [clients.tenantId, clients.id],
+    }).onDelete('cascade'),
   ],
 );
 

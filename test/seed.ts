@@ -133,6 +133,32 @@ export async function seedTenant(db: Db, label = `org-${uniq()}`) {
       })
       .returning();
     await tx.insert(s.auditLog).values({ tenantId, actorType: 'system', action: 'test.seeded' });
+    await tx.insert(s.findingEvents).values({
+      tenantId,
+      findingId: finding!.id,
+      auditRunId: run!.id,
+      event: 'opened',
+      actorType: 'system',
+    });
+    await tx.insert(s.healthScores).values({
+      tenantId,
+      adAccountId: account!.id,
+      entityLevel: 'campaign',
+      entityMetaId: campaign!.metaId,
+      date: '2026-10-01',
+      formulaVersion: 'health-v1',
+      profile: 'leads',
+      windowDays: 7,
+      score: '72.50',
+      grade: 'good',
+      confidence: '0.600',
+      coverage: '0.850',
+      components: [],
+      auditRunId: run!.id,
+    });
+    await tx
+      .insert(s.auditConfigs)
+      .values({ tenantId, clientId: client!.id, config: { fdrQ: 0.1 }, updatedBy: owner.id });
     const adsetId = `${Math.floor(Math.random() * 1e12)}`;
     await tx.insert(s.adsets).values({
       tenantId,
