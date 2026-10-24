@@ -71,14 +71,9 @@ describe('parseUsage', () => {
 });
 
 describe('createMetaClient', () => {
-  it('añade appsecret_proof y versión, y en modo cabecera no pone el token en la URL', async () => {
+  it('añade appsecret_proof y versión, y el token va en la cabecera, nunca en la URL', async () => {
     const { fn, calls } = fakeFetch([{ body: { id: '1' } }]);
-    await createMetaClient({
-      accessToken: TOKEN,
-      appSecret: SECRET,
-      tokenInHeader: true,
-      fetch: fn,
-    }).get('/me');
+    await createMetaClient({ accessToken: TOKEN, appSecret: SECRET, fetch: fn }).get('/me');
     const [call] = calls;
     if (!call) throw new Error('no se hizo ninguna llamada');
     expect(call.url).toMatch(/^https:\/\/graph\.facebook\.com\/v26\.0\/me\?/);
@@ -95,6 +90,7 @@ describe('createMetaClient', () => {
     );
     expect(calls[0]?.url).toBe('https://graph.facebook.com/v26.0/act_1/insights');
     expect(String(calls[0]?.init.body)).toContain('level=ad');
+    expect(String(calls[0]?.init.body)).not.toContain(TOKEN);
   });
 
   it('pagina por cursor sin seguir la URL de paging.next (que trae el token)', async () => {

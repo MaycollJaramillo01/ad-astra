@@ -283,7 +283,7 @@ Se revisa al cierre de cada fase. Cada entrada indica el impacto y cuándo se pa
 | TD-16 | F1 sync | Insights solo en síncrono; ante "demasiados datos" (100/1487534) se parte el rango por la mitad | Cuentas muy grandes: muchas llamadas y ticks largos en la reexpresión y el backfill | F1 staging: informes asíncronos si una cuenta real lo necesita |
 | TD-17 | F1 sync | La reexpresión corre cada 24 h desde que se activa la cuenta, no en la madrugada local | Puede coincidir con horas de más uso de cuota | F1 staging, si el uso de cuota lo pide |
 | TD-18 | F1 sync | El descubrimiento no marca las cuentas que dejan de aparecer; las entidades que Meta deja de listar (borradas o archivadas) se marcan con `deleted_at` sin distinguir el motivo | Una cuenta sin acceso falla con un error de permisos en vez de mostrarse como "sin acceso" | F2 (estado de la cuenta en la UI) |
-| TD-19 | F1 sync | `token_validation` usa `debug_token` con el token de la app y `appsecret_proof`, sin la "lectura mínima" de API_INTEGRATIONS §1.4 (la hace el descubrimiento justo después) | Si Meta rechazara el `appsecret_proof` con el token de la app, la validación fallaría siempre | Spike (F0): confirmar con una llamada real |
+| TD-19 | F1 sync | ~~`token_validation` usa `debug_token` con el token de la app y `appsecret_proof`, sin confirmar que Meta lo acepte~~ **Resuelto el 2026-10-24:** el spike lo confirmó con una llamada real. La "lectura mínima" de API_INTEGRATIONS §1.4 la sigue haciendo el descubrimiento justo después | — | — |
 
 ## 7. Supuestos de capacidad
 

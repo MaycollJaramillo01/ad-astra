@@ -91,10 +91,9 @@ await step('token', async () => {
   };
 });
 
-// --- V-02: token en cabecera Authorization en lugar de en la URL
+// --- V-02: el cliente envía el token en Authorization: Bearer (sin access_token en la URL)
 await step('V02_bearer_header', async () => {
-  const viaHeader = createMetaClient({ accessToken: token, appSecret, tokenInHeader: true });
-  const { body } = await viaHeader.get<{ id: string }>('/me', { fields: 'id' });
+  const { body } = await meta.get<{ id: string }>('/me', { fields: 'id' });
   return { accepted: Boolean(body.id) };
 });
 

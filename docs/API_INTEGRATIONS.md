@@ -75,7 +75,7 @@ Tiers de usuarios del sistema [V]: con *Limited access*, 1 usuario del sistema y
 
 - **`appsecret_proof`** en todas las llamadas: HMAC-SHA256 del token con el app secret como clave [V]. Se activa **Require App Secret** en el panel de la app para que un token robado no sirva sin el secret [V].
 - Opcional: *Server Allow List* (IPs de salida permitidas) si el hosting ofrece IP fija [V]. En Vercel las IP de salida son dinámicas y la lista exige su opción de IPs estáticas (ADR-022): no se usa en el MVP.
-- **Token fuera de la URL:** si Graph API acepta `Authorization: Bearer <token>` (V-02), el token irá en la cabecera; si no, en la query string, con redacción obligatoria de toda URL antes de registrarla. Los errores de red de las librerías HTTP pueden incluir la URL completa: el cliente nunca registra `error.message` sin pasarlo por la redacción [S, lección documentada por arcbaslow].
+- **Token fuera de la URL:** el cliente lo envía siempre en `Authorization: Bearer <token>` (V-02, confirmado en el spike), nunca en la URL ni en el cuerpo de un POST; en la URL solo va el `appsecret_proof`. La redacción de URLs se mantiene como defensa en profundidad. Los errores de red de las librerías HTTP pueden incluir la URL completa: el cliente nunca registra `error.message` sin pasarlo por la redacción [S, lección documentada por arcbaslow].
 - TLS 1.2+ y tiempos de espera explícitos: 30 s en lecturas síncronas, 120 s en subidas; los trabajos asíncronos se consultan por sondeo.
 - **SDK oficial:** no se usa (ADR-004). Si se usara, habría que desactivar el informe automático de errores (`crash_log`), que envía trazas a Meta [S].
 
@@ -307,7 +307,32 @@ Si el token se expone: revocarlo en el usuario del sistema y generar uno nuevo (
 
 ### 1.22 Hallazgos del spike
 
-Pendiente de la primera ejecución de `pnpm spike:meta` por el responsable. Cada punto V-01 a V-14 se resuelve aquí con su evidencia (redactada) y la decisión que provoca.
+Dos ejecuciones manuales autorizadas el 2026-10-24 (informe local en `spike-output/report.json`; fixtures sanitizadas en `test/fixtures/meta/v26.0/`, pendientes de revisión antes de versionarlas). La primera no encontró cuentas: el usuario del sistema solo tenía páginas asignadas. En la segunda tenía 17 cuentas (4 propias y 13 de clientes) y se probó una cuenta **de cliente** compartida como socio (HNL, `America/Tegucigalpa`, ~50 anuncios).
+
+| ID | Resultado | Decisión |
+|---|---|---|
+| V-01 | ✓ Las cuentas de clientes compartidas como socio y asignadas al usuario del sistema se leen (entidades, Insights síncronos y asíncronos, actividad) con el nivel actual, `development_access` | El plan de F1 no cambia. Full access sigue haciendo falta por cuota (V-10) |
+| V-02 | ✓ Graph acepta el token en `Authorization: Bearer` sin `access_token` en la URL | Hecho: el cliente solo usa la cabecera (§1.5) y el Meta simulado de los tests rechaza un token en la URL |
+| V-03 | Parcial: `filtering` por `updated_time` aceptado (3 de 49 campañas cambiadas en 30 días); falta compararlo con el listado completo | `entities` sigue con el listado completo |
+| V-04 | Forma confirmada: `results = [{indicator: "actions:<action_type>", values: [{value, attribution_windows: ["default"]}]}]`, y su valor coincide con ese `action_type` (14 conversaciones de mensajería = 14). A nivel de cuenta con objetivos mezclados no se devuelve. Falta compararlo con la columna "Resultados" de Ads Manager en 3 objetivos | `parseResults` interpreta bien las filas reales (ninguna marcada `results_unparsed`) |
+| V-05 | `amount_spent` llega como entero en unidades menores (p. ej. `123456` → 1 234,56 en la moneda de la cuenta); `spend` de Insights, en unidades mayores con decimales | Pendiente de confirmar el acumulado en Ads Manager |
+| V-06 | Sin probar | Aplazado a F5 |
+| V-07 | ✓ Llegan `x-business-use-case-usage` (clave: id de la cuenta **sin** `act_`; `type`, `call_count`, `total_cputime`, `total_time`, `estimated_time_to_regain_access`, `ads_api_access_tier`), `x-ad-account-usage` (`acc_id_util_pct`, `reset_time_duration`, `ads_api_access_tier`), `x-fb-ads-insights-throttle` (`app_id_util_pct`, `acc_id_util_pct`, `ads_api_access_tier`) y `x-app-usage`. No llega `x-business-use-case` | El parser del gobernador ya las cubre todas |
+| V-08 | Pendiente: conciliación diaria con Ads Manager (CA-F0-02). `attribution_setting` vale `1d_view_7d_click` en campañas, conjuntos y anuncios, y `multiple` a nivel de cuenta | — |
+| V-09 | `since` de 90 días aceptado; la primera página trae 100 eventos (del 2026-08-30 al 2026-10-23) | Paginar en la próxima ejecución para conocer la antigüedad máxima |
+| V-10 | Nivel actual `development_access` (cabeceras); solicitudes no enviadas | Responsable: App Review de `ads_read` y paso a Full access (§1.21, pasos 9 y 10) |
+| V-11 | Sin probar (es consulta del changelog) | Aplazado a F3 |
+| V-12 | Las cuentas se asignaron con `DRAFT`, `ANALYZE` y `ADVERTISE`, y la lectura funciona; falta probar solo con `ANALYZE` | Reasignar con "ver rendimiento" al rotar el token |
+| V-13 | Sin probar | Aplazado a F5 |
+| V-14 | Sin probar | Aplazado a F3 |
+
+Otros hallazgos:
+- **Consistencia entre niveles:** el gasto y las impresiones de 30 días son idénticos en los 4 niveles, y la suma de los días coincide con el total del periodo. Incluir objetos archivados o borrados (`filtering` por todos los `effective_status`) no cambia nada: los hechos por nivel no pierden datos.
+- Los días con conversiones atribuidas pero sin impresiones llegan como filas (5 de 108 a nivel de anuncio); se guardan con gasto 0, que es lo que Meta informa.
+- El informe asíncrono añade las combinaciones anuncio-día **sin entrega** (210 filas frente a 108, mismo gasto). Si se adopta (TD-16), hay que aceptarlas como ceros o filtrarlas.
+- El informe asíncrono de 30 días a nivel de anuncio tardó 7 s en esta cuenta.
+- **Desviaciones de la checklist (§1.21):** el usuario del sistema tiene rol de **Admin** y el token **35 permisos** (entre ellos `ads_management`, `business_management`, `pages_manage_posts` y `whatsapp_business_messaging`) en lugar de rol Empleado y solo `ads_read`. El token y el app secret de estas ejecuciones se compartieron por chat: el responsable los rotará (paso 7 y párrafo final de §1.21).
+- `debug_token` con el token de la app y `appsecret_proof` funciona (cierra TD-19).
 
 ## 2. Proveedores LLM (F4)
 

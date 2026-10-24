@@ -89,7 +89,10 @@ Cada fase añade aquí una entrada al cerrar: fecha, commit, resultado por crite
 | 2026-10-23 | F0 (parcial) | Script de roles (`db/init/01-roles.sql`) sobre un Postgres 17 limpio, como en la CI | ✓ |
 | 2026-10-23 | F0 (parcial) | `pnpm audit --audit-level high` | ✓ sin vulnerabilidades conocidas |
 | 2026-10-23 | F0 (parcial) | Primera ejecución del workflow de GitHub Actions (run 40007312436, commit `bbc6ba1`): job `check` (typecheck, lint, 51 tests con Postgres 17 de servicio, `docs:check`, auditoría de dependencias) y job `secrets` (gitleaks) | ✓ ambos jobs en verde (TD-07 resuelto) |
-| — | F0 | Spike contra Meta real (CA-F0-02 a 05) | Pendiente: ejecución manual autorizada por el responsable |
+| 2026-10-24 | F0 | Spike contra Meta real, autorizado por el responsable (2 ejecuciones; la segunda con 17 cuentas asignadas y una cuenta de cliente bajo prueba). Detalle por punto en API_INTEGRATIONS §1.22 | ✓ todos los pasos; V-01, V-02 y V-07 cerrados |
+| 2026-10-24 | F0 | CA-F0-03: búsqueda del token y del app secret en el log, el informe, el CSV y las fixtures | ✓ 0 coincidencias |
+| 2026-10-24 | F0 | Consistencia de los hechos: gasto e impresiones de 30 días iguales en los 4 niveles y la suma diaria igual al total; filas reales pasadas por el extractor de KPIs sin marcas `results_unparsed` | ✓ |
+| — | F0 | CA-F0-02: conciliación diaria con Ads Manager (`spike-output/reconciliacion.csv`) | Pendiente: comparación del responsable |
 | 2026-10-23 | F1 base | Suite completa: 94 tests en 13 archivos. Aislamiento en BD (`rls.test.ts`, 13), seguridad de la API (`api-security.test.ts`, 13), token canario por la API (`connections.test.ts`, 4), autenticación con Better Auth real (`auth.test.ts`, 7), errores y contrato (`api-basics.test.ts`, 2), cifrado (3), configuración (3) y los de F0 | ✓ |
 | 2026-10-23 | F1 base | Pruebas de mutación: (1) quitar el alcance por cliente → falla 1 test; (2) confiar en `x-tenant-id` sin verificar la membresía → fallan 2 tests | ✓ las defensas están cubiertas |
 | 2026-10-23 | F1 base | Regresión detectada por la suite durante un refactor (404 convertido en 500 al revocar) | ✓ corregida antes de terminar |

@@ -129,8 +129,6 @@ export class MetaNetworkError extends Error {
 export interface MetaClientOptions {
   accessToken: string;
   appSecret: string;
-  /** Envía el token en `Authorization: Bearer` en vez de en la URL (pendiente de V-02). */
-  tokenInHeader?: boolean;
   /** Inyectable para tests: sin red real ni credenciales en la CI. */
   fetch?: typeof fetch;
   timeoutMs?: number;
@@ -156,9 +154,8 @@ export function createMetaClient(opts: MetaClientOptions) {
     const query = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v !== undefined) query.set(k, String(v));
     query.set('appsecret_proof', proof);
-    const headers: Record<string, string> = {};
-    if (opts.tokenInHeader) headers.authorization = `Bearer ${opts.accessToken}`;
-    else query.set('access_token', opts.accessToken);
+    // El token va siempre en la cabecera, nunca en la URL ni en el cuerpo (V-02, confirmado en el spike).
+    const headers = { authorization: `Bearer ${opts.accessToken}` };
 
     const url = `${BASE_URL}${path}`;
     const init: RequestInit = {

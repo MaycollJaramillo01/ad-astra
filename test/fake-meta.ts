@@ -91,13 +91,17 @@ export function createFakeMeta(opts: { appId: string; appSecret: string }) {
     );
   }
 
-  const fetch = (async (input: string | URL) => {
+  const fetch = (async (input: string | URL, init?: RequestInit) => {
     const url = new URL(String(input));
     const path = url.pathname.replace(/^\/v\d+\.\d+/, '');
     const params = url.searchParams;
     calls.push({ path, params });
 
-    const token = params.get('access_token') ?? '';
+    // Ad Astra manda el token en la cabecera: uno en la URL es un fallo del cliente.
+    if (params.has('access_token'))
+      return error(100, 'access_token en la URL (no permitido en los tests)');
+    const auth = (init?.headers as Record<string, string> | undefined)?.authorization ?? '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
     if (params.get('appsecret_proof') !== appSecretProof(token, opts.appSecret)) {
       return error(100, 'Invalid appsecret_proof provided in the API argument');
     }

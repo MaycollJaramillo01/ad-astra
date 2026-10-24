@@ -25,6 +25,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 - `platform/access.ts` concentra la lógica de invitaciones y membresías (antes en `modules/tenancy`), para que `platform` no dependa de ningún módulo.
 - CSRF por verificación de `Origin` en lugar del token de doble envío previsto (SECURITY §4.5).
 - `pnpm-workspace.yaml` autoriza los scripts de instalación de `esbuild` (pnpm 11 los bloquea por defecto).
+- El cliente de Meta envía el token solo en `Authorization: Bearer` (V-02 confirmado en el spike); desaparece la opción de llevarlo en la URL.
 - Al dar de alta una conexión se encola su validación; revocarla vacía su cola.
 - Editar un miembro que otro administrador acaba de quitar responde 404 en lugar de 500 (condición de carrera detectada por un test).
 
