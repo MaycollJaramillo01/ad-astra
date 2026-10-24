@@ -1,0 +1,198 @@
+import { sql } from 'drizzle-orm';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { withContext } from '../src/db/client.ts';
+import * as s from '../src/db/schema.ts';
+import { pgError, type SeededTenant, seedTenant, seedUser, testDb } from './seed.ts';
+
+// Pruebas de aislamiento entre tenants en la propia base de datos (ADR-007, CA-F1-02).
+// Se ejecutan con app_rw, el mismo rol que la aplicación.
+
+const db = testDb();
+let a: SeededTenant;
+let b: SeededTenant;
+
+// Tablas globales a propósito (Better Auth): un usuario puede pertenecer a varios tenants.
+const GLOBAL_TABLES = ['auth_accounts', 'auth_sessions', 'auth_users', 'auth_verifications'];
+
+async function tenantTables(): Promise<string[]> {
+  const { rows } = await db.execute<{ table_name: string }>(sql`
+    select table_name from information_schema.columns
+    where table_schema = 'public' and column_name = 'tenant_id' order by table_name`);
+  return rows.map((r) => r.table_name);
+}
+
+beforeAll(async () => {
+  a = await seedTenant(db);
+  b = await seedTenant(db);
+});
+
+describe('cobertura de RLS', () => {
+  it('toda tabla con tenant_id tiene RLS activado y forzado, con al menos una política', async () => {
+    const { rows } = await db.execute<{
+      relname: string;
+      on: boolean;
+      forced: boolean;
+      policies: number;
+    }>(sql`
+      select c.relname, c.relrowsecurity as on, c.relforcerowsecurity as forced,
+             (select count(*)::int from pg_policies p where p.tablename = c.relname) as policies
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relkind in ('r', 'p')`);
+    const byName = new Map(rows.map((r) => [r.relname, r]));
+    const tables = [...(await tenantTables()), 'tenants'];
+    expect(tables.length).toBeGreaterThan(10);
+    for (const t of tables) {
+      expect(byName.get(t), t).toMatchObject({ on: true, forced: true });
+      expect(byName.get(t)?.policies, t).toBeGreaterThan(0);
+    }
+  });
+
+  it('las únicas tablas sin RLS son las globales de autenticación', async () => {
+    const { rows } = await db.execute<{ relname: string }>(sql`
+      select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relkind in ('r', 'p') and not c.relrowsecurity order by 1`);
+    expect(rows.map((r) => r.relname)).toEqual(GLOBAL_TABLES);
+  });
+
+  it('el rol de la aplicación no puede saltarse RLS ni crear tablas', async () => {
+    const { rows } = await db.execute<{ rolbypassrls: boolean; rolsuper: boolean }>(
+      sql`select rolbypassrls, rolsuper from pg_roles where rolname = current_user`,
+    );
+    expect(rows[0]).toEqual({ rolbypassrls: false, rolsuper: false });
+    expect(await pgError(db.execute(sql`create table rls_probe (x int)`))).toMatchObject({
+      code: '42501',
+      message: expect.stringMatching(/permission denied/),
+    });
+  });
+});
+
+describe('aislamiento entre tenants', () => {
+  it('sin contexto no se ve ninguna fila de ninguna tabla de tenant', async () => {
+    for (const t of await tenantTables()) {
+      const { rows } = await withContext(db, {}, (tx) =>
+        tx.execute<{ n: number }>(sql`select count(*)::int as n from ${sql.identifier(t)}`),
+      );
+      expect(rows[0]?.n, t).toBe(0);
+    }
+  });
+
+  it('el tenant B no ve, actualiza ni borra filas del tenant A en ninguna tabla', async () => {
+    for (const t of await tenantTables()) {
+      const table = sql.identifier(t);
+      await withContext(db, { tenantId: b.tenantId }, async (tx) => {
+        const seen = await tx.execute<{ n: number }>(
+          sql`select count(*)::int as n from ${table} where tenant_id = ${a.tenantId}`,
+        );
+        expect(seen.rows[0]?.n, `${t}: select`).toBe(0);
+        if (t === 'audit_log') return; // sin UPDATE ni DELETE: se prueba aparte
+        const updated = await tx.execute(
+          sql`update ${table} set tenant_id = tenant_id where tenant_id = ${a.tenantId}`,
+        );
+        expect(updated.rowCount, `${t}: update`).toBe(0);
+        const deleted = await tx.execute(sql`delete from ${table} where tenant_id = ${a.tenantId}`);
+        expect(deleted.rowCount, `${t}: delete`).toBe(0);
+      });
+    }
+    // Las filas de A siguen intactas.
+    const still = await withContext(db, { tenantId: a.tenantId }, (tx) =>
+      tx.select().from(s.clients),
+    );
+    expect(still.map((c) => c.id)).toContain(a.client.id);
+  });
+
+  it('no se puede insertar una fila para otro tenant (WITH CHECK)', async () => {
+    expect(
+      await pgError(
+        withContext(db, { tenantId: b.tenantId }, (tx) =>
+          tx.insert(s.clients).values({ tenantId: a.tenantId, name: 'intrusa' }),
+        ),
+      ),
+    ).toMatchObject({ code: '42501', message: expect.stringMatching(/row-level security/) });
+  });
+
+  it('no se puede mover una fila propia a otro tenant', async () => {
+    expect(
+      await pgError(
+        withContext(db, { tenantId: b.tenantId }, (tx) =>
+          tx.execute(sql`update clients set tenant_id = ${a.tenantId} where id = ${b.client.id}`),
+        ),
+      ),
+    ).toMatchObject({ code: '42501', message: expect.stringMatching(/row-level security/) });
+  });
+
+  it('las FK compuestas impiden enlazar una fila propia con un id de otro tenant', async () => {
+    expect(
+      await pgError(
+        withContext(db, { tenantId: b.tenantId }, (tx) =>
+          tx.execute(
+            sql`update ad_accounts set client_id = ${a.client.id} where id = ${b.account.id}`,
+          ),
+        ),
+      ),
+    ).toMatchObject({ code: '23503', message: expect.stringMatching(/foreign key/) });
+  });
+
+  it('el contexto no sobrevive a la transacción', async () => {
+    await withContext(db, { tenantId: a.tenantId }, async () => undefined);
+    const { rows } = await db.execute<{ n: number }>(sql`select count(*)::int as n from clients`);
+    expect(rows[0]?.n).toBe(0);
+  });
+});
+
+describe('políticas especiales', () => {
+  it('un usuario solo ve los tenants de los que es miembro', async () => {
+    const visible = await withContext(db, { userId: a.owner.id }, (tx) =>
+      tx.select().from(s.tenants),
+    );
+    expect(visible.map((t) => t.id)).toEqual([a.tenantId]);
+  });
+
+  it('un usuario ve sus membresías en todos sus tenants, pero no las ajenas', async () => {
+    await withContext(db, { tenantId: b.tenantId }, (tx) =>
+      tx.insert(s.memberships).values({ tenantId: b.tenantId, userId: a.owner.id, role: 'viewer' }),
+    );
+    const mine = await withContext(db, { userId: a.owner.id }, (tx) =>
+      tx.select().from(s.memberships),
+    );
+    expect(mine.map((m) => m.tenantId).sort()).toEqual([a.tenantId, b.tenantId].sort());
+    expect(mine.every((m) => m.userId === a.owner.id)).toBe(true);
+  });
+
+  it('un invitado ve sus invitaciones pendientes y no las de otros', async () => {
+    const outsider = await seedUser(db);
+    await withContext(db, { tenantId: a.tenantId }, (tx) =>
+      tx.insert(s.invitations).values([
+        { tenantId: a.tenantId, email: outsider.email, role: 'analyst' },
+        { tenantId: a.tenantId, email: 'otra@agencia.test', role: 'viewer' },
+      ]),
+    );
+    const seen = await withContext(db, { userEmail: outsider.email }, (tx) =>
+      tx.select().from(s.invitations),
+    );
+    expect(seen.map((i) => i.email)).toEqual([outsider.email]);
+  });
+
+  it('audit_log es de solo inserción y no admite eventos de otro tenant', async () => {
+    await withContext(db, { tenantId: a.tenantId }, async (tx) => {
+      expect(await pgError(tx.execute(sql`update audit_log set action = 'x'`))).toMatchObject({
+        code: '42501',
+        message: expect.stringMatching(/permission denied/),
+      });
+    });
+    await withContext(db, { tenantId: a.tenantId }, async (tx) => {
+      expect(await pgError(tx.execute(sql`delete from audit_log`))).toMatchObject({
+        code: '42501',
+        message: expect.stringMatching(/permission denied/),
+      });
+    });
+    expect(
+      await pgError(
+        withContext(db, { tenantId: b.tenantId }, (tx) =>
+          tx
+            .insert(s.auditLog)
+            .values({ tenantId: a.tenantId, actorType: 'user', action: 'falso' }),
+        ),
+      ),
+    ).toMatchObject({ code: '42501', message: expect.stringMatching(/row-level security/) });
+  });
+});

@@ -2,7 +2,27 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/). Las versiones `0.x` corresponden a las fases del [ROADMAP](ROADMAP.md#1-vista-general).
 
-## [Unreleased] — F0 en curso (se publicará como 0.1.0)
+## [Unreleased] — F1 base (sin acceso real a Meta)
+
+### Añadido
+- **Backend** Fastify 5 con zod (validación, serialización y OpenAPI en `/v1/openapi.json`), errores RFC 9457 uniformes, log de acceso estructurado sin query strings, `x-request-id`, helmet, límite de peticiones y CSRF por `Origin`.
+- **Configuración** validada con zod al arrancar (`src/platform/config.ts`); `.env.example` con todas las variables.
+- **Base de datos**: Drizzle ORM, migraciones `0000_init.sql` (generada y revisada) y `0001_rls.sql` (aislamiento escrito a mano), BD de tests separada (`ad_astra_test`), `pnpm db:migrate`.
+- **Modelo**: organizaciones, usuarios y sesiones (Better Auth), membresías, invitaciones, clientes, asignaciones, consentimientos, conexiones Meta, cuentas publicitarias, campañas, ejecuciones de auditoría, hallazgos, recomendaciones y registro de eventos de solo inserción.
+- **Aislamiento**: RLS forzado en las 13 tablas de tenant, funciones de contexto, FK compuestas `(tenant_id, id)`, contexto por transacción y verificación de la membresía del tenant activo.
+- **Autenticación**: Better Auth con Google Workspace (`hd`), alta solo por invitación, tokens OAuth cifrados; `pnpm admin:bootstrap` para crear la primera organización.
+- **Autorización**: RBAC (owner, admin, manager, analyst, viewer), alcance por cliente e invariante de arranque (ninguna ruta sin control de acceso).
+- **API v1**: me, miembros, invitaciones, clientes, asignaciones, consentimientos, conexiones Meta (token de solo escritura, cifrado AES-256-GCM con AAD), cuentas, campañas, hallazgos, recomendaciones y registro de eventos.
+- **Web**: SPA con React 19, Vite 8, React Router, TanStack Query y Tailwind 4: login con Google, organización activa, clientes, cuentas y conexiones.
+- **Pruebas**: 94 tests, incluidos aislamiento en BD, seguridad de la API entre tenants, token canario y Better Auth real; pruebas de mutación de las defensas.
+- **CI**: typecheck de servidor y web, lint, tests con Postgres, build de la web, comprobación de documentación, auditoría de dependencias y gitleaks.
+
+### Cambiado
+- `platform/access.ts` concentra la lógica de invitaciones y membresías (antes en `modules/tenancy`), para que `platform` no dependa de ningún módulo.
+- CSRF por verificación de `Origin` en lugar del token de doble envío previsto (SECURITY §4.5).
+- `pnpm-workspace.yaml` autoriza los scripts de instalación de `esbuild` (pnpm 11 los bloquea por defecto).
+
+## [0.1.0-pre] — F0 (pendiente de cerrar con el spike de Meta)
 
 ### Añadido
 - Repositorio git local (`main`) con un solo paquete pnpm; TypeScript 7 estricto ejecutado de forma nativa por Node ≥ 22.18; Biome (lint y formato); Vitest.

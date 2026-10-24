@@ -101,6 +101,11 @@ Plantilla de cada fase: (1) objetivo y alcance · (2) requisitos funcionales y n
 
 ### 4.2 F1 — Núcleo de datos: tenancy, conexiones Meta e ingesta
 
+> **Estado (2026-10-23): base del sistema lista; la ingesta de Meta no se ha empezado (a propósito, hasta tener la base y el aislamiento probados).**
+> - ✅ Hecho: configuración validada; Postgres con Drizzle, migraciones revisadas y RLS forzado; modelo de organizaciones, usuarios, invitaciones, clientes, asignaciones, consentimientos, conexiones Meta (token cifrado), cuentas, campañas, ejecuciones de auditoría, hallazgos, recomendaciones y registro de eventos; API Fastify con errores RFC 9457, logs estructurados con redacción, control de acceso por ruta, RBAC, alcance por cliente, CSRF por `Origin` y OpenAPI; autenticación Better Auth + Google Workspace (`hd`, solo por invitación); SPA (login, organización activa, clientes, cuentas, conexiones); script de alta inicial; CI con build de la web.
+> - ✅ Verificado: 94 tests (13 de aislamiento en BD, 13 de seguridad de la API, 4 del token canario, 7 de autenticación, entre otros) en verde; pruebas de mutación de las defensas; prueba en el navegador contra la API y la BD locales.
+> - ⏳ Pendiente en F1: despliegue en Vercel + Neon (paso 0), tabla `jobs` + `tick`, gobernador de cuotas, sincronización (descubrimiento, entidades, insights, actividad, validación del token), estado del sistema y 7 días en staging. Criterios CA-F1-01 y 04 a 08 dependen de la ingesta; CA-F1-02 y 03 están cumplidos.
+
 1. **Objetivo y alcance.** Sincronizar de forma fiable, incremental y programada las cuentas autorizadas de varios clientes hacia Postgres, con aislamiento multi-tenant y gestión segura de credenciales. Incluye una UI administrativa mínima. No incluye dashboards de análisis.
 2. **Requisitos.**
    - FR: login del personal con Google Workspace (alta por invitación; 2FA impuesto por el Workspace); tenant de la agencia; gestión de usuarios y roles; CRUD de clientes, asignaciones y consentimientos; alta de la conexión Meta (token de solo escritura, validación y cifrado); descubrimiento de cuentas; asignación de cuentas a clientes; activación de la sincronización por cuenta; jobs `entities`, `insights_incremental`, `insights_restatement`, `insights_backfill`, `activities` y `token_validation`; gobernador de cuotas; página de estado del sistema; registro de auditoría; detección de cambios de configuración (`entity_changes`).
@@ -265,6 +270,12 @@ Se revisa al cierre de cada fase. Cada entrada indica el impacto y cuándo se pa
 | TD-05 | Planificación | Algunos datos se repiten entre documentos (versiones de Meta, criterios del MVP) y pueden desincronizarse | Documentos contradictorios | F0: la fuente única es el documento de detalle (API_INTEGRATIONS, ROADMAP) y los demás enlazan; enlaces y anclas comprobados en la CI (`pnpm docs:check`). La sintaxis Mermaid sigue siendo una comprobación manual |
 | TD-06 | F0 | El `tick` tiene un techo de 800 s por invocación: un backfill grande debe trocearse por meses y cuentas | Backfills lentos con muchas cuentas | F1 (troceo); reevaluar Vercel Workflows si no basta |
 | TD-07 | F0 | ~~Workflow de CI escrito pero sin ejecutar hasta crear el remoto en GitHub~~ **Resuelto el 2026-10-23:** primera ejecución en verde (run 40007312436, commit `bbc6ba1`) | — | — |
+| TD-08 | F1 base | Límite de peticiones en memoria por instancia: en Vercel cada instancia cuenta por su lado | Un abuso repartido entre instancias no se frena del todo | Al desplegar: valorar un almacén compartido o el firewall de Vercel |
+| TD-09 | F1 base | Falta el test que detecta cambios incompatibles del OpenAPI entre commits | Un cambio de contrato podría pasar desapercibido | Antes de tener consumidores externos (F7) |
+| TD-10 | F1 base | Sin pruebas e2e de la SPA: el login real con Google no se puede automatizar y no se quiere un acceso de pruebas en producción | Regresiones de UI detectadas a mano | F2 (Playwright con sesión inyectada solo en el entorno de test) |
+| TD-11 | F1 base | Listados sin paginación (salvo `audit-log`) | Respuestas grandes con muchas cuentas | F2, cuando crezcan los listados |
+| TD-12 | F1 base | La verificación en dos pasos depende de la política del Workspace, no de Ad Astra | Un owner sin 2SV debilita el acceso | Checklist del responsable antes de producción |
+| TD-13 | F1 base | `pnpm audit`: 1 vulnerabilidad moderada (GHSA-67mh-4wv8-2f99) en `esbuild` 0.18, que arrastra `drizzle-kit` (solo desarrollo). Afecta al servidor de desarrollo de esbuild, que no se usa | Ninguno en producción; riesgo aceptado | Al actualizar `drizzle-kit` (revisar en cada actualización de dependencias) |
 
 ## 7. Supuestos de capacidad
 

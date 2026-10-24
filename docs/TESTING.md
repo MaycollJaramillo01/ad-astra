@@ -16,7 +16,7 @@
 | Nivel | Qué cubre | Herramienta | Dónde corre |
 |---|---|---|---|
 | Unitarias | Métricas, reglas, salud, estadística, gobernador, clasificación de errores, cifrado, redacción, verificador de cifras | Vitest | Cada commit |
-| Integración | Repositorios + Postgres (roles, RLS, upserts, particiones), trabajos del `tick`, API con Fastify `inject` | Vitest + Postgres en Docker (puerto 55432) o servicio de la CI | Cada PR |
+| Integración | Postgres real (roles, RLS, FK compuestas; más adelante upserts, particiones y el `tick`) y API con Fastify `inject`. La identidad se sustituye por una cabecera de test; todo lo demás es real | Vitest + BD `ad_astra_test` (Docker en el puerto 55432 o servicio de la CI), migrada y vaciada al empezar | Cada PR |
 | Contrato con Meta | Campos pedidos ⊆ specs de la versión fijada; parseo de fixtures v26 sanitizadas; respuestas de error | Vitest + snapshot de `api_specs` + `fetch` inyectado en el cliente | Cada PR |
 | Documentación | Enlaces relativos y anclas entre los documentos de `docs/` | `pnpm docs:check` | Cada PR |
 | Contrato propio | OpenAPI generado frente al anterior (cambios incompatibles); respuestas sin campos secretos | Script en la CI | Cada PR |
@@ -90,6 +90,11 @@ Cada fase añade aquí una entrada al cerrar: fecha, commit, resultado por crite
 | 2026-10-23 | F0 (parcial) | `pnpm audit --audit-level high` | ✓ sin vulnerabilidades conocidas |
 | 2026-10-23 | F0 (parcial) | Primera ejecución del workflow de GitHub Actions (run 40007312436, commit `bbc6ba1`): job `check` (typecheck, lint, 51 tests con Postgres 17 de servicio, `docs:check`, auditoría de dependencias) y job `secrets` (gitleaks) | ✓ ambos jobs en verde (TD-07 resuelto) |
 | — | F0 | Spike contra Meta real (CA-F0-02 a 05) | Pendiente: ejecución manual autorizada por el responsable |
+| 2026-10-23 | F1 base | Suite completa: 94 tests en 13 archivos. Aislamiento en BD (`rls.test.ts`, 13), seguridad de la API (`api-security.test.ts`, 13), token canario por la API (`connections.test.ts`, 4), autenticación con Better Auth real (`auth.test.ts`, 7), errores y contrato (`api-basics.test.ts`, 2), cifrado (3), configuración (3) y los de F0 | ✓ |
+| 2026-10-23 | F1 base | Pruebas de mutación: (1) quitar el alcance por cliente → falla 1 test; (2) confiar en `x-tenant-id` sin verificar la membresía → fallan 2 tests | ✓ las defensas están cubiertas |
+| 2026-10-23 | F1 base | Regresión detectada por la suite durante un refactor (404 convertido en 500 al revocar) | ✓ corregida antes de terminar |
+| 2026-10-23 | F1 base | Prueba manual en el navegador integrado contra la API y la BD de desarrollo: login, sesión, alta de cliente, alta de conexión con token ficticio (solo se muestra la huella) y logs sin el token | ✓ |
+| — | F1 base | Login completo con Google | Pendiente: necesita el cliente OAuth "Internal" real del Workspace |
 
 ## 9. Pruebas manuales autorizadas
 

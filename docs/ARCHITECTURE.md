@@ -59,34 +59,41 @@ flowchart LR
 
 ## 4. Módulos del monolito (C4 · nivel 3)
 
+Un solo paquete (ADR-001, revisado en F0). Estado a 2026-10-23: ✅ implementado · ⏳ fase posterior.
+
 ```
-apps/
-  web/                    SPA (React)
-  server/
-    src/
-      platform/           config, logging con redacción, db + contexto de tenant, cola, crypto, http, errores
-      modules/
-        tenancy/          tenants, usuarios, membresías, RBAC, asignación de clientes, consentimientos
-        meta/             cliente HTTP, tokens, gobernador de cuotas, esquemas zod de respuestas, jobs de sync
-        catalog/          cuentas, campañas, conjuntos, anuncios, creatividades, cambios de configuración
-        insights/         hechos diarios, servicio de consultas (ratios de sumas), estados de dato
-        audit/            registro de reglas, evaluación, hallazgos
-        health/           índices de salud
-        alerts/           reglas de monitorización, deduplicación, ciclo de vida
-        notifications/    políticas y envío (email)
-        ai/               (F4) interfaz LLM, herramientas, verificador de cifras, documentos, reportes
-        optimization/     (F5) propuestas, aprobaciones, ejecutor, verificación, reversión
-        forecasting/      (F6) pronósticos, backtesting, simulación
-packages/
-  shared/                 catálogo de métricas, tipos y esquemas zod del contrato (compartidos web/server)
+src/
+  app.ts                  ✅ ensamblado de Fastify (plugins, errores, acceso, rutas)
+  server.ts               ✅ entrada local (en Vercel, función: F1 despliegue)
+  contracts.ts            ✅ contrato v1 en zod: validación, serialización de respuestas y OpenAPI
+  domain.ts               ✅ valores de dominio sin dependencias (los importa también la web)
+  db/                     ✅ esquema Drizzle, pool y contexto de tenant por transacción (withContext)
+  platform/               ✅ config, logging con redacción, errores RFC 9457, cifrado, eventos,
+                             auth (Better Auth + Google), access (invitaciones y membresías),
+                             http (control de acceso por ruta, CSRF), rbac
+  modules/
+    tenancy/              ✅ miembros, invitaciones, clientes, asignaciones, consentimientos
+    meta/                 ✅ conexiones (token cifrado), cliente Graph v26, taxonomía de errores
+                          ⏳ gobernador de cuotas y trabajos de sincronización (tick)
+    catalog/              ✅ cuentas publicitarias y campañas (lectura y asignación)
+                          ⏳ conjuntos, anuncios, creatividades, cambios de configuración
+    audit/                ✅ hallazgos, recomendaciones y registro de eventos (consulta y decisión)
+                          ⏳ motor de reglas (F3)
+    insights/ health/ alerts/ notifications/   ⏳ F2–F3
+    ai/                   ⏳ F4
+    optimization/         ⏳ F5
+    forecasting/          ⏳ F6
+web/src/                  ✅ SPA: login con Google, organización activa, clientes, cuentas, conexiones
+migrations/               ✅ SQL generado y revisado; 0001_rls.sql con el aislamiento
+test/                     ✅ integración y seguridad contra Postgres real
 ```
 
 **Reglas de dependencia:**
 - `platform` no depende de ningún módulo.
-- Los módulos se comunican mediante funciones de servicio exportadas en su `index.ts`, nunca leyendo tablas de otro módulo.
-- `ai` solo depende de servicios de lectura (`insights`, `catalog`, `audit`, `health`, `alerts`) y de su propio proveedor. **No importa `meta` ni `optimization`** (lo comprueba un test de arquitectura).
+- Las tablas de un módulo solo las escribe ese módulo. Las lecturas cruzadas se limitan a los *joins* necesarios para aplicar el alcance (por ejemplo, hallazgo → cuenta → cliente asignado).
+- `ai` solo depende de servicios de lectura (`insights`, `catalog`, `audit`, `health`, `alerts`) y de su propio proveedor. **No importa `meta` ni `optimization`** (test de arquitectura en F4).
 - `optimization` es el único módulo que invoca operaciones de escritura de `meta`.
-- `packages/shared` no contiene lógica con efectos (solo definiciones puras).
+- `contracts.ts` y `domain.ts` no contienen lógica con efectos.
 
 ## 5. Stack tecnológico
 
@@ -362,28 +369,35 @@ Toda predicción se publica con su ficha (datos, supuestos, métricas de backtes
 - REST bajo `/v1`, JSON, OpenAPI 3.1 generado desde los esquemas zod y publicado en `/v1/openapi.json`. Un test de la CI compara el contrato con el del commit anterior y avisa de cambios incompatibles.
 - **Errores:** `application/problem+json` (RFC 9457) con `type`, `title`, `status`, `detail` y `request_id`; nunca trazas ni secretos.
 - **Paginación** por cursor (`?cursor=&limit=`). **Idempotencia** con la cabecera `Idempotency-Key` en los POST con efectos.
-- **Autenticación** por cookie de sesión httpOnly, Secure y SameSite=Lax, con protección CSRF (token de doble envío) en los métodos que modifican.
-- **Recursos iniciales:**
+- **Autenticación** por cookie de sesión de Better Auth (httpOnly, SameSite=Lax; Secure en producción). **CSRF:** toda petición que modifica debe llevar `Origin` = `APP_ORIGIN` (se descarta el token de doble envío: con cookie SameSite y mismo origen, la verificación de origen es suficiente y no añade estado).
+- **Tenant activo:** cabecera `x-tenant-id`. El servidor solo la acepta tras verificar la membresía; sin cabecera, se usa la única membresía si hay una.
+- **Control de acceso por ruta:** cada ruta declara `access` (`public`, `authenticated` o `permission`); la app no arranca si alguna no lo hace.
+- **Recursos** (✅ = implementado el 2026-10-23; contrato vivo en `GET /v1/openapi.json`):
 
 | Recurso | Métodos | Fase |
 |---|---|---|
-| `/v1/me`, `/v1/tenants/current`, `/v1/users`, `/v1/memberships` | GET, POST, PATCH | F1 |
-| `/v1/clients`, `/v1/clients/{id}/assignments`, `/v1/clients/{id}/consents` | GET, POST, PATCH | F1 |
-| `/v1/meta/connections` (el token es de solo escritura) | GET, POST, DELETE | F1 |
-| `/v1/ad-accounts`, `/v1/ad-accounts/{id}/sync` | GET, PATCH, POST | F1 |
-| `/v1/sync-runs`, `/v1/system/status` | GET | F1 |
+| ✅ `/v1/health`, `/v1/ready`, `/v1/openapi.json` (públicos) | GET | F1 |
+| ✅ `/v1/auth/*` (Better Auth: Google, sesión, salida) | GET, POST | F1 |
+| ✅ `/v1/me` | GET | F1 |
+| ✅ `/v1/members`, `/v1/members/{userId}` | GET, PATCH, DELETE | F1 |
+| ✅ `/v1/invitations`, `/v1/invitations/{id}/revoke` | GET, POST | F1 |
+| ✅ `/v1/clients`, `/v1/clients/{id}`, `/{id}/assignments`, `/{id}/consents`, `/{id}/consents/{consentId}/revoke` | GET, POST, PATCH, PUT | F1 |
+| ✅ `/v1/meta/connections`, `/v1/meta/connections/{id}/revoke` (el token es de solo escritura) | GET, POST | F1 |
+| ✅ `/v1/ad-accounts`, `/v1/ad-accounts/{id}`, `/v1/ad-accounts/{id}/campaigns` | GET, PATCH | F1 |
+| ✅ `/v1/recommendations`, `/v1/recommendations/{id}/decision` | GET, POST | F1 (las genera F3) |
+| `/v1/ad-accounts/{id}/sync`, `/v1/sync-runs`, `/v1/system/status` | GET, POST | F1 (ingesta) |
 | `/v1/entities/{level}` (campañas, conjuntos, anuncios, creatividades) | GET | F2 |
 | `/v1/insights/query` (métricas, nivel, rango, comparación, agrupación) | POST | F2 |
 | `/v1/insights/breakdowns` (consulta en vivo con caché) | POST | F2 |
 | `/v1/kpi-targets`, `/v1/kpi-profiles/overrides` | GET, POST, PATCH | F2 |
 | `/v1/rules`, `/v1/rules/{id}/config` | GET, PUT | F3 |
-| `/v1/findings`, `/v1/findings/{id}/decision` | GET, POST | F3 |
+| ✅ `/v1/findings`, `/v1/findings/{id}/decision` | GET, POST | F1 (los genera F3) |
 | `/v1/health/{level}/{id}` | GET | F3 |
 | `/v1/notification-policies` | GET, PUT | F3 |
 | `/v1/ai/conversations`, `/v1/reports`, `/v1/documents` | GET, POST | F4 |
 | `/v1/actions`, `/v1/actions/{id}/approve`, `/reject`, `/revert` | GET, POST | F5 |
 | `/v1/forecasts`, `/v1/simulations` | GET, POST | F6 |
-| `/v1/audit-log` | GET | F1 |
+| ✅ `/v1/audit-log` (paginado por cursor `before`) | GET | F1 |
 | `/v1/webhooks/meta` (público, con firma) | GET, POST | F5 |
 
 ## 8. Requisitos no funcionales

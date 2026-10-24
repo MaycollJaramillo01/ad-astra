@@ -2,6 +2,20 @@
 
 > Versión 0.1 · 2026-10-23 · Estado: **diseño**. El SQL de este documento es un boceto de referencia, no una migración: las migraciones reales se generan y revisan en F1 (ver §7). PostgreSQL 17+.
 
+## 0. Estado de implementación (2026-10-23)
+
+La fuente de verdad es `src/db/schema.ts` más las migraciones de `migrations/` (`0000_init.sql`, generada y revisada, y `0001_rls.sql`, escrita a mano). El resto de este documento es el diseño completo; aquí se indica qué existe ya y en qué difiere del boceto.
+
+| Implementado | Diferencia con el boceto |
+|---|---|
+| `tenants`, `memberships`, `clients`, `client_assignments`, `client_consents`, `meta_connections`, `ad_accounts`, `campaigns`, `audit_runs`, `findings`, `audit_log` | Las referencias entre tablas de un tenant son **FK compuestas** `(tenant_id, id)`: Postgres valida las FK sin RLS y una FK simple dejaría enlazar con ids de otro tenant |
+| `invitations` (nueva) | Alta solo por invitación (ADR-019); una pendiente por email y tenant |
+| `recommendations` (nueva) | Recomendación accionable (tipo de acción, parámetros, justificación, origen, estado y decisión), ligada opcionalmente a un hallazgo. En F5, aceptar una no ejecuta nada: genera una propuesta con aprobación |
+| `auth_users`, `auth_sessions`, `auth_accounts`, `auth_verifications` | Tablas de Better Auth, **globales y sin RLS** a propósito (un usuario puede estar en varios tenants). Los tokens OAuth de Google se guardan cifrados (`encryptOAuthTokens`) |
+| Funciones `app_tenant_id()`, `app_user_id()`, `app_user_email()` | Leen el contexto de la transacción; sin contexto devuelven null y las políticas no dejan pasar nada |
+| Políticas especiales | `tenants`: cada usuario ve las organizaciones de las que es miembro. `memberships`: además, cada usuario lee las suyas en todos sus tenants. `invitations`: el invitado lee sus invitaciones pendientes. `audit_log`: solo inserción (`REVOKE UPDATE, DELETE, TRUNCATE`); los eventos de plataforma (tenant null) no los lee nadie desde la aplicación |
+| Pendiente (F1 ingesta, F2–F3) | `jobs`, `sync_runs`, `meta_rate_state`, `meta_api_calls`, `adsets`, `ads`, `creatives`, `entity_changes`, `meta_activities`, `insights_daily` (particionada), `kpi_*`, `rule_configs`, `finding_events`, `health_scores`, `notification_*` |
+
 ## 1. Convenciones
 
 | Tema | Regla |

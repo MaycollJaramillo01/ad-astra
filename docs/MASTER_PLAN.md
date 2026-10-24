@@ -6,9 +6,9 @@
 |---|---|
 | Versión | 0.2 — **aprobado** por el responsable el 2026-10-23 |
 | Fecha | 2026-10-23 |
-| Fase actual | **F0 en curso** (fundaciones y spikes de viabilidad) |
-| Estado del código | Esqueleto de F0: cliente mínimo de Meta, tests, CI y spike (ver [ROADMAP §4.1](ROADMAP.md#41-f0--fundaciones-y-spikes-de-viabilidad)) |
-| Próximo hito | Ejecución del spike de Meta por el responsable → cierre de F0 (H1) |
+| Fase actual | **F0** pendiente del spike de Meta · **F1** base del sistema lista, sin ingesta (ver [ROADMAP §4.2](ROADMAP.md#42-f1--núcleo-de-datos-tenancy-conexiones-meta-e-ingesta)) |
+| Estado del código | API, SPA, BD con RLS, autenticación con Google Workspace, RBAC y 94 tests; sin acceso real a Meta |
+| Próximo hito | Spike de Meta (responsable) → despliegue en Vercel + Neon → ingesta |
 
 ## 0. Mapa de documentos
 

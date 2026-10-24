@@ -89,6 +89,7 @@ El responsable aprobó el plan maestro el **2026-10-23**: las decisiones pasan a
 - **Alternativas:** esquema por tenant (migraciones multiplicadas); BD por tenant (costo y operación; se puede ofrecer más adelante a clientes enterprise); filtrado solo en la aplicación (un olvido = fuga).
 - **Consecuencias:** cada consulta debe ejecutarse dentro de una transacción con contexto; los jobs fijan el tenant del trabajo.
 - **Revisar si:** un cliente enterprise exige aislamiento físico.
+- **Revisión 2026-10-23 (implementación):** además de RLS, (1) **FK compuestas** `(tenant_id, id)` en todas las referencias internas de un tenant, porque Postgres valida las FK sin aplicar RLS; (2) políticas específicas para `tenants`, `memberships`, `invitations` y `audit_log` (DATABASE_SCHEMA §0); (3) el contexto se fija con `set_config(..., true)` dentro de cada transacción (`withContext`), para que no se filtre entre peticiones del pool; (4) la cabecera `x-tenant-id` solo elige entre las membresías verificadas del usuario. Probado en `test/rls.test.ts` y `test/api-security.test.ts`, con pruebas de mutación.
 
 ## ADR-008 — Cifrado de credenciales con AES-256-GCM y clave maestra versionada
 
@@ -209,6 +210,7 @@ El responsable aprobó el plan maestro el **2026-10-23**: las decisiones pasan a
 - **Alternativas:** tRPC (acoplado a TypeScript y sin contrato estándar); escribir el OpenAPI a mano (se desincroniza).
 - **Consecuencias:** disciplina de esquemas en cada endpoint.
 - **Revisar si:** aparece la necesidad de streaming bidireccional, que se resolvería con SSE en rutas concretas sin cambiar el contrato.
+- **Revisión 2026-10-23 (implementación):** los esquemas viven en `src/contracts.ts` y los valores de dominio en `src/domain.ts` (sin dependencias). Como web y servidor comparten paquete, la SPA importa los **tipos** del contrato directamente (`import type`) en lugar de generar un cliente desde el OpenAPI; el OpenAPI se sigue publicando en `/v1/openapi.json` para consumidores externos. El serializador de zod descarta cualquier campo que no esté en el esquema de respuesta, lo que impide filtrar por accidente columnas como el cifrado del token. El test de cambios incompatibles del contrato queda pendiente (TD-09).
 
 ## ADR-018 — Estadística simple y explicable en TypeScript
 

@@ -75,8 +75,10 @@
 ### 4.3 Multi-tenancy verificable
 
 - `tenant_id` en todas las tablas de datos y RLS forzado ([DATABASE_SCHEMA.md §4](DATABASE_SCHEMA.md#4-aislamiento-multi-tenant-rls)).
-- El contexto de tenant se fija en el servidor a partir de la sesión; **nunca** desde un parámetro del cliente.
-- Pruebas obligatorias en la CI: cobertura de RLS en el catálogo de tablas, lectura y escritura cruzadas con `app_rw`, y una petición de la API con el ID de un recurso de otro tenant que debe devolver 404.
+- El contexto de tenant lo fija el servidor por transacción (`set_config(..., true)`, local a la transacción) tras verificar la membresía del usuario; la cabecera `x-tenant-id` solo **elige** entre sus organizaciones y nunca se usa sin esa verificación.
+- **Claves foráneas compuestas** `(tenant_id, id)` en todas las referencias entre tablas de un tenant: Postgres comprueba las FK sin aplicar RLS, así que una FK simple permitiría enlazar una fila propia con el id de otro tenant.
+- Un recurso de otro tenant responde **404**, igual que uno inexistente: no se confirma su existencia.
+- Pruebas obligatorias en la CI (implementadas: `test/rls.test.ts`, `test/api-security.test.ts`): cobertura de RLS en el catálogo de tablas, lectura, actualización, borrado e inserción cruzadas con `app_rw`, fallo cerrado sin contexto, FK compuestas, peticiones de la API con ids de otro tenant (404, con control positivo en el tenant propio), cabecera de tenant ajena (403) y alcance por cliente. Se verificó con **pruebas de mutación** que fallan si se quita el alcance por cliente o se confía en la cabecera sin verificar la membresía.
 
 ### 4.4 Secretos y credenciales
 
@@ -91,7 +93,7 @@
 
 - Validación con zod de todo el input (cuerpo, query, parámetros y cabeceras relevantes); rechazo de campos desconocidos en las escrituras.
 - Validación de salida: las respuestas se serializan con el esquema declarado (no se filtran campos internos).
-- CSRF: token de doble envío en los métodos que modifican; CORS cerrado (mismo origen).
+- CSRF: toda petición que modifica exige `Origin` = `APP_ORIGIN` (`src/platform/http.ts`), además de la cookie SameSite=Lax y las comprobaciones de origen propias de Better Auth; CORS cerrado (mismo origen). Sustituye al token de doble envío previsto: con mismo origen y SameSite, la verificación de origen basta y no añade estado. Los webhooks de Meta (F5) tendrán una excepción explícita, protegida por firma.
 - Cabeceras: CSP estricta (sin `unsafe-inline` en scripts), HSTS, `X-Content-Type-Options`, `Referrer-Policy` y `frame-ancestors 'none'` (helmet).
 - Límite de peticiones (`@fastify/rate-limit`) por IP y usuario, más estricto en login y en los desgloses en vivo.
 - Errores en formato `problem+json` sin trazas; el detalle va al log con el `request_id`.
@@ -187,6 +189,7 @@ Meta es una fuente secundaria para los hechos de los últimos 37 meses (se puede
 |---|---|
 | F0 | Repositorio con escaneo de secretos; `.env.example` sin valores; redacción de logs y `redactUrl()` con tests; `appsecret_proof` en el cliente; Require App Secret activado en la app de Meta; token del spike fuera del repositorio |
 | F1 | RLS forzado en todas las tablas + tests de aislamiento; cifrado de tokens con AAD + test de manipulación; respuestas sin tokens (test de contrato); test canario; RBAC centralizado y tests por endpoint; acceso solo con Google Workspace (app OAuth "Internal" + `hd`) y verificación en dos pasos obligatoria en el Workspace para owner y admin; registro de auditoría de solo inserción; límites de peticiones; CSP y cabeceras; auditoría de dependencias en la CI; backups y PITR configurados; consentimientos por cliente |
+| F1 · estado 2026-10-23 | ✅ RLS forzado + tests · ✅ FK compuestas · ✅ cifrado AES-256-GCM con AAD + tests de manipulación y rotación · ✅ token nunca en respuestas, logs, eventos ni OpenAPI (test canario por la API) · ✅ RBAC centralizado + invariante de arranque (ninguna ruta sin acceso declarado) · ✅ Google Workspace con `hd` + alta solo por invitación · ⏳ verificación en dos pasos obligatoria en el Workspace (configuración del responsable) · ✅ `audit_log` de solo inserción · ✅ límite de peticiones (en memoria por instancia, TD-08) · ✅ cabeceras (helmet) · ✅ CSRF por `Origin` · ✅ auditoría de dependencias y gitleaks en la CI · ⏳ PITR y backups (al desplegar en Neon) · ✅ consentimientos por cliente (modelo y API) |
 | F2 | Autorización por cliente en todas las consultas; cuotas de desgloses en vivo; exportaciones CSV auditadas |
 | F3 | Notificaciones sin datos sensibles; DPA del proveedor de email; simulacro de restauración |
 | F4 | DPA del proveedor LLM; minimización verificada; inventario de herramientas de solo lectura (test); suite de inyección; verificador de cifras; presupuestos y límites; documentos solo `approved` |

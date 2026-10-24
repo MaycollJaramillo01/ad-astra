@@ -24,8 +24,7 @@ jobs:
           --health-interval 2s
           --health-timeout 3s
           --health-retries 30
-    env:
-      DATABASE_URL: postgres://app_rw:app_rw_local@localhost:55432/ad_astra
+    # Los tests usan su propia BD (ad_astra_test, test/env.ts): la migran y la vacían al empezar.
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -39,6 +38,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+      - run: pnpm build:web
       - run: pnpm docs:check
       - name: Auditoría de dependencias
         run: pnpm audit --audit-level high

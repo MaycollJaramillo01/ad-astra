@@ -29,8 +29,9 @@ const REDACT_PATHS = [
   '*.headers.cookie',
 ];
 
-export function createLogger(destination?: DestinationStream): Logger {
+export function createLogger(destination?: DestinationStream, level = 'info'): Logger {
   const options = {
+    level,
     redact: { paths: REDACT_PATHS, censor: '[REDACTED]' },
     serializers: {
       err(e: Error) {
