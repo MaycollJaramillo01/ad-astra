@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, type ReactNode, useState } from 'react';
 import type { AdAccount, Client, Connection } from '../../src/contracts.ts';
 import type { Role } from '../../src/domain.ts';
 import { ApiError, api } from './api.ts';
@@ -57,20 +57,30 @@ export function ClientsPage({ role }: { role: Role }) {
       <Table
         empty="Todavía no hay clientes."
         headers={['Nombre', 'Estado', 'Alta']}
-        rows={(clients.data ?? []).map((c) => [
-          c.name,
-          c.status,
-          new Date(c.createdAt).toLocaleDateString('es'),
-        ])}
+        rows={(clients.data ?? []).map((c) => ({
+          key: c.id,
+          cells: [c.name, c.status, new Date(c.createdAt).toLocaleDateString('es')],
+        }))}
       />
     </section>
   );
 }
 
-export function AccountsPage() {
+const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString('es') : '—');
+
+export function AccountsPage({ role }: { role: Role }) {
+  const queryClient = useQueryClient();
   const accounts = useQuery({
     queryKey: ['ad-accounts'],
     queryFn: () => api<AdAccount[]>('/v1/ad-accounts'),
+  });
+  const toggle = useMutation({
+    mutationFn: (a: AdAccount) =>
+      api<AdAccount>(`/v1/ad-accounts/${a.id}`, {
+        method: 'PATCH',
+        body: { syncEnabled: !a.syncEnabled },
+      }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['ad-accounts'] }),
   });
   return (
     <section aria-labelledby="cuentas">
@@ -78,19 +88,47 @@ export function AccountsPage() {
         Cuentas publicitarias
       </h2>
       <p className="mb-4 text-sm text-gray-500">
-        Aparecerán aquí cuando se active la sincronización con Meta (siguiente fase).
+        Se descubren al validar una conexión con Meta. Al activar la sincronización se traen las
+        entidades, los Insights recientes y el histórico (13 meses por defecto).
       </p>
       {accounts.error && <ErrorBox error={accounts.error} />}
+      {toggle.error && <ErrorBox error={toggle.error} />}
       <Table
         empty="No hay cuentas visibles para ti."
-        headers={['Cuenta', 'ID de Meta', 'Moneda', 'Zona horaria', 'Sincronización']}
-        rows={(accounts.data ?? []).map((a) => [
-          a.name,
-          a.metaAccountId,
-          a.currency,
-          a.timezoneName,
-          a.syncEnabled ? 'Activa' : 'Inactiva',
-        ])}
+        headers={[
+          'Cuenta',
+          'ID de Meta',
+          'Moneda',
+          'Zona horaria',
+          'Sincronización',
+          'Últimos datos',
+        ]}
+        rows={(accounts.data ?? []).map((a) => ({
+          key: a.id,
+          cells: [
+            a.name,
+            a.metaAccountId,
+            a.currency,
+            a.timezoneName,
+            isAdmin(role) ? (
+              <button
+                key="sync"
+                type="button"
+                className={button}
+                disabled={toggle.isPending}
+                aria-label={`${a.syncEnabled ? 'Desactivar' : 'Activar'} la sincronización de ${a.name}`}
+                onClick={() => toggle.mutate(a)}
+              >
+                {a.syncEnabled ? 'Activa · desactivar' : 'Activar'}
+              </button>
+            ) : a.syncEnabled ? (
+              'Activa'
+            ) : (
+              'Inactiva'
+            ),
+            when(a.lastInsightsSyncAt),
+          ],
+        }))}
       />
     </section>
   );
@@ -120,7 +158,7 @@ export function ConnectionsPage({ role }: { role: Role }) {
       </h2>
       <p className="mb-4 text-sm text-gray-500">
         El token se cifra al guardarlo y nunca se vuelve a mostrar; solo su huella. Queda pendiente
-        de validación hasta que se active el acceso a Meta.
+        hasta que el siguiente ciclo de sincronización lo valida con Meta y descubre sus cuentas.
       </p>
       <form
         className="mb-4 grid gap-2 sm:grid-cols-3"
@@ -170,19 +208,25 @@ export function ConnectionsPage({ role }: { role: Role }) {
       {connections.error && <ErrorBox error={connections.error} />}
       <Table
         empty="No hay conexiones."
-        headers={['Nombre', 'App', 'Huella del token', 'Estado']}
-        rows={(connections.data ?? []).map((c) => [
-          c.label,
-          c.metaAppId,
-          c.tokenFingerprint,
-          c.status,
-        ])}
+        headers={['Nombre', 'App', 'Huella del token', 'Estado', 'Última validación']}
+        rows={(connections.data ?? []).map((c) => ({
+          key: c.id,
+          cells: [c.label, c.metaAppId, c.tokenFingerprint, c.status, when(c.lastValidatedAt)],
+        }))}
       />
     </section>
   );
 }
 
-function Table({ headers, rows, empty }: { headers: string[]; rows: string[][]; empty: string }) {
+function Table({
+  headers,
+  rows,
+  empty,
+}: {
+  headers: string[];
+  rows: Array<{ key: string; cells: ReactNode[] }>;
+  empty: string;
+}) {
   if (rows.length === 0) return <p className="text-sm text-gray-500">{empty}</p>;
   return (
     <div className="overflow-x-auto">
@@ -198,8 +242,8 @@ function Table({ headers, rows, empty }: { headers: string[]; rows: string[][]; 
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row.join('|')} className="border-b border-gray-100 dark:border-gray-900">
-              {row.map((cell, i) => (
+            <tr key={row.key} className="border-b border-gray-100 dark:border-gray-900">
+              {row.cells.map((cell, i) => (
                 <td key={`${headers[i]}`} className="py-2 pr-4">
                   {cell}
                 </td>

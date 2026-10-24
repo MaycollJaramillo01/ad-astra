@@ -2,7 +2,7 @@ import { Writable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.ts';
 import type { Identity } from '../src/platform/auth.ts';
-import { loadConfig } from '../src/platform/config.ts';
+import { type Config, loadConfig } from '../src/platform/config.ts';
 import { createLogger } from '../src/platform/logging.ts';
 import { testDb } from './seed.ts';
 
@@ -12,7 +12,7 @@ import { testDb } from './seed.ts';
 
 export const config = loadConfig();
 
-export async function testApp(opts: { realAuth?: boolean } = {}) {
+export async function testApp(opts: { realAuth?: boolean; config?: Partial<Config> } = {}) {
   let logs = '';
   const sink = new Writable({
     write(chunk, _enc, done) {
@@ -22,7 +22,7 @@ export async function testApp(opts: { realAuth?: boolean } = {}) {
   });
   const users = new Map<string, Identity>();
   const app = await buildApp({
-    config,
+    config: { ...config, ...opts.config },
     db: testDb(),
     logger: createLogger(sink, 'info'),
     ...(!opts.realAuth && {

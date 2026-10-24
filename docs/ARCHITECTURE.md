@@ -59,7 +59,7 @@ flowchart LR
 
 ## 4. Módulos del monolito (C4 · nivel 3)
 
-Un solo paquete (ADR-001, revisado en F0). Estado a 2026-10-23: ✅ implementado · ⏳ fase posterior.
+Un solo paquete (ADR-001, revisado en F0). Estado a 2026-10-24: ✅ implementado · ⏳ fase posterior.
 
 ```
 src/
@@ -70,13 +70,16 @@ src/
   db/                     ✅ esquema Drizzle, pool y contexto de tenant por transacción (withContext)
   platform/               ✅ config, logging con redacción, errores RFC 9457, cifrado, eventos,
                              auth (Better Auth + Google), access (invitaciones y membresías),
-                             http (control de acceso por ruta, CSRF), rbac
+                             http (control de acceso por ruta, CSRF), rbac, jobs (cola y tick)
   modules/
     tenancy/              ✅ miembros, invitaciones, clientes, asignaciones, consentimientos
-    meta/                 ✅ conexiones (token cifrado), cliente Graph v26, taxonomía de errores
-                          ⏳ gobernador de cuotas y trabajos de sincronización (tick)
-    catalog/              ✅ cuentas publicitarias y campañas (lectura y asignación)
-                          ⏳ conjuntos, anuncios, creatividades, cambios de configuración
+    meta/                 ✅ conexiones (token cifrado), cliente Graph v26, taxonomía de errores,
+                             gobernador de cuotas, sincronización (sync.ts), extracción de
+                             Insights (insights.ts) y tick HTTP
+                          ⏳ actividad, informes asíncronos (TD-16)
+    catalog/              ✅ cuentas (lectura, asignación, activación de la sincronización e
+                             historial de sync_runs) y campañas
+                          ⏳ creatividades, cambios de configuración
     audit/                ✅ hallazgos, recomendaciones y registro de eventos (consulta y decisión)
                           ⏳ motor de reglas (F3)
     insights/ health/ alerts/ notifications/   ⏳ F2–F3
@@ -84,7 +87,8 @@ src/
     optimization/         ⏳ F5
     forecasting/          ⏳ F6
 web/src/                  ✅ SPA: login con Google, organización activa, clientes, cuentas, conexiones
-migrations/               ✅ SQL generado y revisado; 0001_rls.sql con el aislamiento
+migrations/               ✅ SQL generado y revisado; 0001_rls.sql y 0003_sync_rls.sql con el aislamiento
+scripts/worker.ts         ✅ tick en local (pnpm dev:worker)
 test/                     ✅ integración y seguridad contra Postgres real
 ```
 
@@ -164,13 +168,25 @@ sequenceDiagram
 
 Tipos de job: `discovery`, `entities`, `insights_incremental` (hoy y ayer, cada hora), `insights_restatement` (últimos 28 días, cada noche, asíncrono si la cuenta es grande), `insights_backfill` (alta de cuenta, por meses, prioridad baja), `activities` (registro de actividad), `token_validation` (diaria), `post_sync`. Calendario y presupuesto de llamadas en [API_INTEGRATIONS.md §1.15](API_INTEGRATIONS.md#115-estrategia-de-sincronización-y-presupuesto-de-llamadas).
 
+**Implementación (F1, 2026-10-24).** `src/platform/jobs.ts` (cola) y `src/modules/meta/sync.ts` (un handler por tipo). Alta de conexión → `token_validation` → si es válido, `discovery` diario → las cuentas con la sincronización activa reciben `entities` (2 h), `insights_incremental` (1 h) e `insights_restatement` (24 h); al activarla también un `insights_backfill` que avanza mes a mes con el progreso en el *payload*. Cada handler de cuenta comprueba antes de llamar a Meta que la sincronización sigue activa, que la conexión está `active` y que el cliente tiene `read_insights`; si no, el trabajo termina sin llamadas. Resultado de cada trabajo:
+
+| Situación | Resultado | `sync_runs.status` |
+|---|---|---|
+| Éxito | `done` (los recurrentes vuelven a la cola) | `succeeded` |
+| Cuota bloqueada o throttling | `reschedule` hasta `blocked_until`, sin gastar intento | `throttled` |
+| 190 / 102 | conexión `invalid`, evento, cola de la conexión vaciada y `stop` | `failed` |
+| Red, 1, 2 o fallo propio | `retry` con backoff exponencial (30 s · 2ⁿ, máx. 1 h) | `failed`, o `partial` si ya escribió algo |
+| Permisos u otros errores permanentes | `stop` | `failed` |
+
+Cada bloque (un nivel de Insights, un tipo de entidad) se lee entero y se escribe en una transacción con *upsert* por clave natural: repetir un trabajo no cambia nada y un fallo a mitad no deja medio nivel escrito. `post_sync` llega con la auditoría (F3).
+
 ### 6.3 Gobernador de cuotas
 
-- Estado por ámbito en `meta_rate_state`: `app:insights`, `app:global` y `account:<act_id>`, con `blocked_until` y el último uso leído.
+- Estado por ámbito en `meta_rate_state`, con la app de Meta en la clave (Meta limita por app): `<app_id>|app`, `<app_id>|insights` y `<app_id>|account:<act_id>`, con `blocked_until` y el último uso leído (`src/modules/meta/governor.ts`).
 - Antes de cada llamada: si `blocked_until > ahora`, el trabajo se reprograma (`run_after`) sin consumir reintentos.
 - Tras cada respuesta se parsean las cabeceras de uso. Uso ≥ 90 % → bloquear el ámbito durante `estimated_time_to_regain_access` (o `reset_time_duration`, o 5 min por defecto). Uso ≥ 75 % → concurrencia 1 y pausa entre llamadas.
 - Errores de throttling (ver [taxonomía](API_INTEGRATIONS.md#113-taxonomía-de-errores-y-política-de-reintentos)) → bloqueo del ámbito según el código.
-- Concurrencia por defecto: 1 job de Meta por cuenta y N globales (configurable).
+- Concurrencia: `TICK_CONCURRENCY` trabajadores por tick (3 por defecto). La deduplicación deja un solo trabajo de cada tipo por cuenta; tipos distintos de la misma cuenta pueden coincidir y es el gobernador quien frena si sube el uso.
 
 > ponytail: gobernador con estado en una tabla y reprogramación de jobs. Límite conocido: no reparte la cuota entre tenants que comparten la misma app. Se añade un reparto justo por tenant en F7 si hay contención.
 

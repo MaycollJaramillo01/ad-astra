@@ -95,6 +95,10 @@ Cada fase añade aquí una entrada al cerrar: fecha, commit, resultado por crite
 | 2026-10-23 | F1 base | Regresión detectada por la suite durante un refactor (404 convertido en 500 al revocar) | ✓ corregida antes de terminar |
 | 2026-10-23 | F1 base | Prueba manual en el navegador integrado contra la API y la BD de desarrollo: login, sesión, alta de cliente, alta de conexión con token ficticio (solo se muestra la huella) y logs sin el token | ✓ |
 | — | F1 base | Login completo con Google | Pendiente: necesita el cliente OAuth "Internal" real del Workspace |
+| 2026-10-24 | F1 sync | Suite completa: 137 tests en 18 archivos. Nuevos: cola y tick (`jobs.test.ts`, 11), gobernador (`governor.test.ts`, 4), extracción de Insights y fechas locales (`insights.test.ts`, 7), sincronización completa contra un Meta simulado (`sync.test.ts`, 12: idempotencia, reexpresión, troceo, backfill, consentimiento, throttling, 190, canario y aislamiento) y su API (`sync-api.test.ts`, 6) | ✓ CA-F1-01, 03, 05 y 08; CA-F1-04 salvo la alerta (F3) |
+| 2026-10-24 | F1 sync | Pruebas de mutación: (1) tratar el throttling como error reintentable → falla el test de CA-F1-05; (2) reintentar ante un 190 sin invalidar la conexión → falla el de CA-F1-04 | ✓ |
+| 2026-10-24 | F1 sync | Prueba en el navegador integrado contra la API y la BD de desarrollo: activar la sincronización de una cuenta encola sus 4 trabajos y desactivarla los cancela; `pnpm dev:worker --once` sin app de Meta se niega a correr | ✓ |
+| — | F1 sync | Sincronización con cuentas reales en staging durante 7 días (CA-F1-06, 07) | Pendiente: despliegue y cuentas autorizadas |
 
 ## 9. Pruebas manuales autorizadas
 

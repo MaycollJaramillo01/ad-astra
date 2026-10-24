@@ -26,6 +26,10 @@ const keyRing = z
     return keys;
   });
 
+// En .env una variable vacía ("META_APP_ID=") cuenta como ausente.
+const optional = <T extends z.ZodType>(type: T) =>
+  z.preprocess((v) => (v === '' ? undefined : v), type.optional());
+
 const schema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -46,6 +50,14 @@ const schema = z
       .regex(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/, 'dominio en minúsculas, p. ej. agencia.com'),
     TOKEN_ENCRYPTION_KEYS: keyRing,
     TOKEN_ENCRYPTION_KEY_VERSION: z.coerce.number().int().positive(),
+    /** App de Meta de la agencia. Sin ellas no se sincroniza nada (el tick responde 503). */
+    META_APP_ID: optional(z.string().regex(/^\d+$/, 'id numérico de la app')),
+    META_APP_SECRET: optional(z.string().min(16)),
+    /** Secreto con el que Vercel Cron llama al tick (Authorization: Bearer …). Sin él, no hay tick HTTP. */
+    CRON_SECRET: optional(z.string().min(32, 'mínimo 32 caracteres')),
+    /** Plazo de cada tick: menor que la duración máxima de la función en Vercel. */
+    TICK_BUDGET_SECONDS: z.coerce.number().int().positive().default(240),
+    TICK_CONCURRENCY: z.coerce.number().int().min(1).max(10).default(3),
   })
   .refine((c) => c.TOKEN_ENCRYPTION_KEYS.has(c.TOKEN_ENCRYPTION_KEY_VERSION), {
     path: ['TOKEN_ENCRYPTION_KEY_VERSION'],

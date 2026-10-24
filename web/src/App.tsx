@@ -27,7 +27,7 @@ export function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/clientes" replace />} />
         <Route path="/clientes" element={<ClientsPage role={active.role} />} />
-        <Route path="/cuentas" element={<AccountsPage />} />
+        <Route path="/cuentas" element={<AccountsPage role={active.role} />} />
         <Route path="/conexiones" element={<ConnectionsPage role={active.role} />} />
         <Route path="*" element={<p>Página no encontrada.</p>} />
       </Routes>

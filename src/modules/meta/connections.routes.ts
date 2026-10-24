@@ -10,14 +10,13 @@ import { fingerprint, type TokenCipher } from '../../platform/crypto.ts';
 import { notFound } from '../../platform/errors.ts';
 import { userEvent } from '../../platform/events.ts';
 import { tenantOf } from '../../platform/http.ts';
+import { cancelConnectionJobs, enqueueTokenValidation, tokenAad } from './sync.ts';
 
 // Conexiones de Meta (docs/API_INTEGRATIONS.md §1.4). El token es de solo escritura: se cifra
 // al recibirlo y nunca sale en una respuesta, un log ni un evento (solo su huella).
-// Aún no se valida contra Meta: queda en estado `pending` hasta que llegue la ingesta.
+// Queda en `pending` hasta que el trabajo token_validation lo valida contra Meta.
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
-const aadFor = (tenantId: string, connectionId: string) =>
-  `meta_connections:${tenantId}:${connectionId}`;
 
 const connectionDto = (c: typeof metaConnections.$inferSelect) => ({
   id: c.id,
@@ -63,7 +62,7 @@ export async function connectionRoutes(
       const ctx = tenantOf(request);
       const { accessToken, ...rest } = request.body;
       const id = randomUUID();
-      const sealed = cipher.seal(accessToken, aadFor(ctx.tenantId, id));
+      const sealed = cipher.seal(accessToken, tokenAad(ctx.tenantId, id));
       const row = await withContext(db, ctx, async (tx) => {
         const created = first(
           await tx
@@ -93,6 +92,7 @@ export async function connectionRoutes(
             tokenFingerprint: created.tokenFingerprint,
           },
         });
+        await enqueueTokenValidation(tx, ctx.tenantId, id);
         return created;
       });
       return reply.status(201).send(connectionDto(row));
@@ -120,6 +120,7 @@ export async function connectionRoutes(
           )
           .returning();
         if (!row) throw notFound('Conexión activa');
+        await cancelConnectionJobs(tx, row.id);
         await userEvent(tx, request, {
           action: 'meta_connection.revoked',
           targetType: 'meta_connection',
@@ -128,16 +129,5 @@ export async function connectionRoutes(
         });
         return connectionDto(row);
       }),
-  );
-}
-
-/** Descifra el token de una conexión (lo usará la ingesta; nunca una ruta HTTP). */
-export function openConnectionToken(
-  cipher: TokenCipher,
-  row: typeof metaConnections.$inferSelect,
-): string {
-  return cipher.open(
-    { ciphertext: row.tokenCiphertext, nonce: row.tokenNonce, keyVersion: row.tokenKeyVersion },
-    aadFor(row.tenantId, row.id),
   );
 }

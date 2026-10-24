@@ -45,6 +45,12 @@ pnpm dev:web
 
 El login necesita un cliente OAuth de Google Cloud de tipo "Aplicación web", con la pantalla de consentimiento en modo **Internal** y la URI de redirección `http://localhost:5173/v1/auth/callback/google` (detalles en `.env.example`).
 
+**Sincronización con Meta (opcional).** Con `META_APP_ID` y `META_APP_SECRET` en `.env.local`, el worker procesa la cola cada minuto (`--once` para un solo ciclo). Sin ellas se niega a arrancar: nunca simula datos.
+
+```bash
+pnpm dev:worker
+```
+
 ## Comprobaciones (las mismas que la CI)
 
 ```bash

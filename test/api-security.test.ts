@@ -47,7 +47,7 @@ describe('aislamiento entre tenants', () => {
   it('acceder por id a un recurso de otro tenant responde 404 (no se confirma que exista)', async () => {
     // Las mismas operaciones contra el tenant propio funcionan (control positivo: la ruta existe
     // y el 404 de abajo es del recurso, no de la ruta).
-    const attempts = (target: SeededTenant, viewer: { id: string }) => {
+    const attempts = (target: SeededTenant, toEdit: { id: string }, toRemove: { id: string }) => {
       const api = t.as(a.owner);
       return [
         api.get(`/v1/clients/${target.client.id}`),
@@ -66,23 +66,27 @@ describe('aislamiento entre tenants', () => {
           status: 'acknowledged',
           reason: 'revisado',
         }),
-        api.patch(`/v1/members/${viewer.id}`, { role: 'analyst' }),
+        api.patch(`/v1/members/${toEdit.id}`, { role: 'analyst' }),
         api.post(`/v1/recommendations/${target.recommendation.id}/decision`, {
           status: 'dismissed',
           reason: 'no aplica',
         }),
         api.post(`/v1/meta/connections/${target.connection.id}/revoke`),
-        api.delete(`/v1/members/${viewer.id}`),
+        api.delete(`/v1/members/${toRemove.id}`), // miembros distintos: sin carreras entre sí
       ];
     };
-    const ownViewer = await addMember(db, a.tenantId, 'viewer');
-    const foreignViewer = await addMember(db, b.tenantId, 'viewer');
+    const [ownA, ownB, foreignA, foreignB] = await Promise.all([
+      addMember(db, a.tenantId, 'viewer'),
+      addMember(db, a.tenantId, 'viewer'),
+      addMember(db, b.tenantId, 'viewer'),
+      addMember(db, b.tenantId, 'viewer'),
+    ]);
 
-    for (const res of await Promise.all(attempts(b, foreignViewer))) {
+    for (const res of await Promise.all(attempts(b, foreignA, foreignB))) {
       expect(res.statusCode, res.body).toBe(404);
       expect(res.json().title, res.body).not.toBe('Ruta no encontrada');
     }
-    for (const res of await Promise.all(attempts(a, ownViewer))) {
+    for (const res of await Promise.all(attempts(a, ownA, ownB))) {
       expect(res.statusCode, res.body).toBeLessThan(300);
     }
   });
@@ -198,6 +202,19 @@ describe('RBAC', () => {
     expect(lastDemotion.statusCode).toBe(403); // ya no es owner: no puede tocar a otro owner
     const self = await t.as(coOwner).delete(`/v1/members/${coOwner.id}`);
     expect(self.statusCode).toBe(403); // ni retirarse a sí mismo dejando la organización sin owner
+  });
+});
+
+describe('concurrencia', () => {
+  it('cambiar el rol y retirar al mismo miembro a la vez nunca da 500', async () => {
+    for (let i = 0; i < 5; i++) {
+      const target = await addMember(db, a.tenantId, 'viewer');
+      const results = await Promise.all([
+        t.as(a.owner).patch(`/v1/members/${target.id}`, { role: 'analyst' }),
+        t.as(a.owner).delete(`/v1/members/${target.id}`),
+      ]);
+      for (const res of results) expect([200, 204, 404], res.body).toContain(res.statusCode);
+    }
   });
 });
 

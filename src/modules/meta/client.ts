@@ -10,39 +10,45 @@ export function appSecretProof(accessToken: string, appSecret: string): string {
   return createHmac('sha256', appSecret).update(accessToken).digest('hex');
 }
 
+/** Ámbitos de cuota de Meta: toda la app, la plataforma de Insights de la app, la cuenta. */
+export type UsageScope = 'app' | 'insights' | 'account';
+
 /** Uso de cuota leído de las cabeceras de respuesta (docs/API_INTEGRATIONS.md §1.12). */
 export interface MetaUsage {
   /** Mayor porcentaje de uso visto en cualquier cabecera, o null si no vino ninguna. */
   maxPct: number | null;
+  /** Mayor porcentaje por ámbito (solo los ámbitos que informaron). */
+  byScope: Partial<Record<UsageScope, number>>;
   /** Segundos hasta recuperar el acceso según Meta, o null si no lo indica. */
   regainSeconds: number | null;
   tier: string | null;
   raw: Record<string, unknown>;
 }
 
-const USAGE_HEADERS = [
-  'x-app-usage',
-  'x-ad-account-usage',
-  'x-business-use-case-usage',
-  'x-business-use-case', // nombre que usa la página de Marketing API (V-07)
-  'x-fb-ads-insights-throttle',
-];
+// Qué ámbito mide cada campo de cada cabecera.
+const USAGE_HEADERS: Record<string, Record<string, UsageScope>> = {
+  'x-app-usage': { call_count: 'app', total_cputime: 'app', total_time: 'app' },
+  'x-ad-account-usage': { acc_id_util_pct: 'account' },
+  'x-business-use-case-usage': {
+    call_count: 'account',
+    total_cputime: 'account',
+    total_time: 'account',
+  },
+  // nombre que usa la página de Marketing API (V-07)
+  'x-business-use-case': { call_count: 'account', total_cputime: 'account', total_time: 'account' },
+  'x-fb-ads-insights-throttle': { app_id_util_pct: 'insights', acc_id_util_pct: 'account' },
+};
 
 export function parseUsage(headers: Headers): MetaUsage {
   const raw: Record<string, unknown> = {};
-  const pcts: number[] = [];
+  const byScope: Partial<Record<UsageScope, number>> = {};
   const regains: number[] = [];
   let tier: string | null = null;
 
-  const take = (o: Record<string, unknown>) => {
-    for (const k of [
-      'call_count',
-      'total_cputime',
-      'total_time',
-      'acc_id_util_pct',
-      'app_id_util_pct',
-    ]) {
-      if (typeof o[k] === 'number') pcts.push(o[k]);
+  const take = (o: Record<string, unknown>, fields: Record<string, UsageScope>) => {
+    for (const [field, scope] of Object.entries(fields)) {
+      const v = o[field];
+      if (typeof v === 'number') byScope[scope] = Math.max(byScope[scope] ?? 0, v);
     }
     if (typeof o.estimated_time_to_regain_access === 'number') {
       regains.push(o.estimated_time_to_regain_access * 60); // Meta lo da en minutos
@@ -51,7 +57,7 @@ export function parseUsage(headers: Headers): MetaUsage {
     if (typeof o.ads_api_access_tier === 'string') tier = o.ads_api_access_tier;
   };
 
-  for (const name of USAGE_HEADERS) {
+  for (const [name, fields] of Object.entries(USAGE_HEADERS)) {
     const value = headers.get(name);
     if (!value) continue;
     let parsed: unknown;
@@ -65,14 +71,17 @@ export function parseUsage(headers: Headers): MetaUsage {
     if (name.startsWith('x-business-use-case')) {
       // { "<id de negocio o cuenta>": [{ type, call_count, ..., estimated_time_to_regain_access }] }
       for (const entries of Object.values(parsed as Record<string, unknown>)) {
-        if (Array.isArray(entries)) for (const e of entries) take(e as Record<string, unknown>);
+        if (Array.isArray(entries))
+          for (const e of entries) take(e as Record<string, unknown>, fields);
       }
     } else if (parsed && typeof parsed === 'object') {
-      take(parsed as Record<string, unknown>);
+      take(parsed as Record<string, unknown>, fields);
     }
   }
+  const pcts = Object.values(byScope);
   return {
     maxPct: pcts.length ? Math.max(...pcts) : null,
+    byScope,
     regainSeconds: regains.length ? Math.max(...regains) : null,
     tier,
     raw,

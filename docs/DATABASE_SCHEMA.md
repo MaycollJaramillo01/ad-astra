@@ -2,9 +2,9 @@
 
 > Versión 0.1 · 2026-10-23 · Estado: **diseño**. El SQL de este documento es un boceto de referencia, no una migración: las migraciones reales se generan y revisan en F1 (ver §7). PostgreSQL 17+.
 
-## 0. Estado de implementación (2026-10-23)
+## 0. Estado de implementación (2026-10-24)
 
-La fuente de verdad es `src/db/schema.ts` más las migraciones de `migrations/` (`0000_init.sql`, generada y revisada, y `0001_rls.sql`, escrita a mano). El resto de este documento es el diseño completo; aquí se indica qué existe ya y en qué difiere del boceto.
+La fuente de verdad es `src/db/schema.ts` más las migraciones de `migrations/`: `0000_init.sql` y `0002_sync.sql` (generadas y revisadas; la segunda, retocada a mano para particionar `insights_daily`), y `0001_rls.sql` y `0003_sync_rls.sql` (aislamiento y particiones, escritas a mano). El resto de este documento es el diseño completo; aquí se indica qué existe ya y en qué difiere del boceto.
 
 | Implementado | Diferencia con el boceto |
 |---|---|
@@ -14,7 +14,12 @@ La fuente de verdad es `src/db/schema.ts` más las migraciones de `migrations/` 
 | `auth_users`, `auth_sessions`, `auth_accounts`, `auth_verifications` | Tablas de Better Auth, **globales y sin RLS** a propósito (un usuario puede estar en varios tenants). Los tokens OAuth de Google se guardan cifrados (`encryptOAuthTokens`) |
 | Funciones `app_tenant_id()`, `app_user_id()`, `app_user_email()` | Leen el contexto de la transacción; sin contexto devuelven null y las políticas no dejan pasar nada |
 | Políticas especiales | `tenants`: cada usuario ve las organizaciones de las que es miembro. `memberships`: además, cada usuario lee las suyas en todos sus tenants. `invitations`: el invitado lee sus invitaciones pendientes. `audit_log`: solo inserción (`REVOKE UPDATE, DELETE, TRUNCATE`); los eventos de plataforma (tenant null) no los lee nadie desde la aplicación |
-| Pendiente (F1 ingesta, F2–F3) | `jobs`, `sync_runs`, `meta_rate_state`, `meta_api_calls`, `adsets`, `ads`, `creatives`, `entity_changes`, `meta_activities`, `insights_daily` (particionada), `kpi_*`, `rule_configs`, `finding_events`, `health_scores`, `notification_*` |
+| `adsets`, `ads` | Sin FK a la campaña (Meta puede listar un conjunto cuya campaña ya no aparece); FK compuesta a la cuenta. Lo que Meta deja de listar se marca con `deleted_at` (TD-18) |
+| `sync_runs` | Una fila por ejecución: tipo, versión de API, ventana, llamadas, filas y error redactado (CA-F1-08) |
+| `insights_daily`, particionada por mes | PK `(tenant_id, level, entity_meta_id, date)`; particiones de 2023-01 a 2028-12 y `default` (TD-14), **sin privilegios para `app_rw`**: solo se accede por la tabla madre, que tiene RLS |
+| `ad_accounts`: `backfill_months` (13 por defecto, 0–37), `last_discovered_at`, `last_entities_sync_at`, `last_insights_sync_at` | Estado de la sincronización visible en la API |
+| `jobs`, `meta_rate_state` (sistema, sin RLS) | `jobs.payload` solo lleva identificadores (lo comprueba un test). Claves de deduplicación `connection:<id>:<tipo>` y `account:<id>:<tipo>`. Ámbitos del gobernador `<app_id>\|app`, `<app_id>\|insights` y `<app_id>\|account:act_…`, porque Meta limita por app |
+| Pendiente (F1 resto, F2–F3) | `meta_api_calls`, `creatives`, `entity_changes`, `meta_activities`, `kpi_*`, `rule_configs`, `finding_events`, `health_scores`, `notification_*` |
 
 ## 1. Convenciones
 

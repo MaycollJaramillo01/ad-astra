@@ -133,6 +133,48 @@ export async function seedTenant(db: Db, label = `org-${uniq()}`) {
       })
       .returning();
     await tx.insert(s.auditLog).values({ tenantId, actorType: 'system', action: 'test.seeded' });
+    const adsetId = `${Math.floor(Math.random() * 1e12)}`;
+    await tx.insert(s.adsets).values({
+      tenantId,
+      metaId: adsetId,
+      adAccountId: account!.id,
+      campaignMetaId: campaign!.metaId,
+      name: `Conjunto ${label}`,
+      raw: {},
+      lastSyncedAt: new Date(),
+    });
+    await tx.insert(s.ads).values({
+      tenantId,
+      metaId: `${Math.floor(Math.random() * 1e12)}`,
+      adAccountId: account!.id,
+      adsetMetaId: adsetId,
+      campaignMetaId: campaign!.metaId,
+      name: `Anuncio ${label}`,
+      raw: {},
+      lastSyncedAt: new Date(),
+    });
+    const [syncRun] = await tx
+      .insert(s.syncRuns)
+      .values({
+        tenantId,
+        adAccountId: account!.id,
+        kind: 'insights_incremental',
+        apiVersion: 'v26.0',
+      })
+      .returning();
+    await tx.insert(s.insightsDaily).values({
+      tenantId,
+      adAccountId: account!.id,
+      level: 'account',
+      entityMetaId: account!.metaAccountId,
+      date: '2026-10-01',
+      currency: 'EUR',
+      spend: '10.0000',
+      impressions: 1000,
+      extractionVersion: 1,
+      syncRunId: syncRun!.id,
+      fetchedAt: new Date(),
+    });
     return {
       tenantId,
       owner,

@@ -84,7 +84,7 @@
 
 - **Cifrado de tokens de Meta:** AES-256-GCM (`node:crypto`), nonce aleatorio de 12 bytes por cifrado, AAD = `tenant_id || connection_id` y versión de clave. La clave maestra (32 bytes) vive como variable de entorno *Sensitive* de Vercel (ADR-022), distinta por entorno, y solo la leen las funciones `api` y `tick`.
 - **Rotación de la clave maestra:** nueva versión → job que recifra las filas → retirada de la versión anterior. En SaaS (F7), la clave maestra pasa a un KMS con claves de datos por tenant (cifrado de sobre).
-- El token se descifra justo antes de la llamada a Meta, solo en memoria, y no se pasa a funciones de logging ni de error.
+- El token se descifra justo antes de la llamada a Meta, solo en memoria, y no se pasa a funciones de logging ni de error. Los mensajes de error que se guardan (`sync_runs.error_message`, `jobs.last_error`) pasan por la redacción; un test canario con errores de red y de Meta que contienen el token lo comprueba.
 - **App secret:** solo en el gestor de secretos. Se rota si hay sospecha de exposición (y se revalidan todas las conexiones).
 - **Repositorio:** `.env` en `.gitignore`, `.env.example` sin valores y escaneo de secretos (gitleaks o equivalente) en pre-commit y en la CI.
 - **Respuestas de la API:** las conexiones devuelven solo `id`, `label`, `kind`, `scopes`, `status`, `expires_at` y la huella. Un test de contrato verifica que ningún esquema de respuesta contiene campos `token`.
@@ -97,6 +97,7 @@
 - Cabeceras: CSP estricta (sin `unsafe-inline` en scripts), HSTS, `X-Content-Type-Options`, `Referrer-Policy` y `frame-ancestors 'none'` (helmet).
 - Límite de peticiones (`@fastify/rate-limit`) por IP y usuario, más estricto en login y en los desgloses en vivo.
 - Errores en formato `problem+json` sin trazas; el detalle va al log con el `request_id`.
+- **Tick** (`GET /v1/internal/tick`): sin sesión de usuario, protegido por `Authorization: Bearer $CRON_SECRET` con comparación en tiempo constante; sin `CRON_SECRET` configurado responde 404 y sin app de Meta, 503 (nunca simula una sincronización).
 - Subidas (F4, documentos): tipos permitidos, tamaño máximo, sin ejecución y extracción de texto en el worker.
 
 ### 4.6 Registro de auditoría
@@ -108,6 +109,7 @@ Eventos mínimos: inicio y cierre de sesión, fallos de login, cambios de rol, a
 - Cada cliente tiene un consentimiento con alcance explícito (`read_insights`, `ai_processing`, `write_status`, `write_budget`) y una referencia al documento firmado.
 - Sin `read_insights` activo, sus cuentas no se sincronizan; sin `ai_processing`, la IA no accede a sus datos; sin el alcance de escritura correspondiente, no se pueden crear propuestas para ellas.
 - La revocación detiene la sincronización de inmediato y programa la purga (§5).
+- Implementado (F1): activar la sincronización de una cuenta exige un cliente con `read_insights` activo, y cada trabajo de la cuenta lo vuelve a comprobar antes de llamar a Meta; revocado, lo pendiente termina sin llamadas. La purga llega con la retención (§5).
 - El permiso técnico (scopes del token y `user_tasks`) y el consentimiento contractual se comprueban **ambos** antes de actuar.
 
 ### 4.8 Seguridad de la IA (OWASP Top 10 para LLM, 2025)
@@ -189,7 +191,7 @@ Meta es una fuente secundaria para los hechos de los últimos 37 meses (se puede
 |---|---|
 | F0 | Repositorio con escaneo de secretos; `.env.example` sin valores; redacción de logs y `redactUrl()` con tests; `appsecret_proof` en el cliente; Require App Secret activado en la app de Meta; token del spike fuera del repositorio |
 | F1 | RLS forzado en todas las tablas + tests de aislamiento; cifrado de tokens con AAD + test de manipulación; respuestas sin tokens (test de contrato); test canario; RBAC centralizado y tests por endpoint; acceso solo con Google Workspace (app OAuth "Internal" + `hd`) y verificación en dos pasos obligatoria en el Workspace para owner y admin; registro de auditoría de solo inserción; límites de peticiones; CSP y cabeceras; auditoría de dependencias en la CI; backups y PITR configurados; consentimientos por cliente |
-| F1 · estado 2026-10-23 | ✅ RLS forzado + tests · ✅ FK compuestas · ✅ cifrado AES-256-GCM con AAD + tests de manipulación y rotación · ✅ token nunca en respuestas, logs, eventos ni OpenAPI (test canario por la API) · ✅ RBAC centralizado + invariante de arranque (ninguna ruta sin acceso declarado) · ✅ Google Workspace con `hd` + alta solo por invitación · ⏳ verificación en dos pasos obligatoria en el Workspace (configuración del responsable) · ✅ `audit_log` de solo inserción · ✅ límite de peticiones (en memoria por instancia, TD-08) · ✅ cabeceras (helmet) · ✅ CSRF por `Origin` · ✅ auditoría de dependencias y gitleaks en la CI · ⏳ PITR y backups (al desplegar en Neon) · ✅ consentimientos por cliente (modelo y API) |
+| F1 · estado 2026-10-23 | ✅ RLS forzado + tests · ✅ FK compuestas · ✅ cifrado AES-256-GCM con AAD + tests de manipulación y rotación · ✅ token nunca en respuestas, logs, eventos ni OpenAPI (test canario por la API) · ✅ RBAC centralizado + invariante de arranque (ninguna ruta sin acceso declarado) · ✅ Google Workspace con `hd` + alta solo por invitación · ⏳ verificación en dos pasos obligatoria en el Workspace (configuración del responsable) · ✅ `audit_log` de solo inserción · ✅ límite de peticiones (en memoria por instancia, TD-08) · ✅ cabeceras (helmet) · ✅ CSRF por `Origin` · ✅ auditoría de dependencias y gitleaks en la CI · ⏳ PITR y backups (al desplegar en Neon) · ✅ consentimientos por cliente (modelo y API; `read_insights` exigido por la sincronización) · ✅ tick protegido por `CRON_SECRET` · ✅ errores de sincronización redactados (test canario) |
 | F2 | Autorización por cliente en todas las consultas; cuotas de desgloses en vivo; exportaciones CSV auditadas |
 | F3 | Notificaciones sin datos sensibles; DPA del proveedor de email; simulacro de restauración |
 | F4 | DPA del proveedor LLM; minimización verificada; inventario de herramientas de solo lectura (test); suite de inyección; verificador de cifras; presupuestos y límites; documentos solo `approved` |

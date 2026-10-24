@@ -2,9 +2,13 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y versionado [SemVer](https://semver.org/lang/es/). Las versiones `0.x` corresponden a las fases del [ROADMAP](ROADMAP.md#1-vista-general).
 
-## [Unreleased] — F1 base (sin acceso real a Meta)
+## [Unreleased] — F1 (base y sincronización con Meta, probada con un Meta simulado)
 
 ### Añadido
+- **Sincronización con Meta**: cola de trabajos en Postgres (`jobs`, `FOR UPDATE SKIP LOCKED`, recurrentes, deduplicación, backoff) drenada por un tick (`GET /v1/internal/tick` con `CRON_SECRET`, o `pnpm dev:worker` en local); gobernador de cuotas por app y cuenta (`meta_rate_state`); trabajos de validación del token, descubrimiento de cuentas, entidades (campañas, conjuntos y anuncios), Insights incremental, reexpresión de 28 días y backfill por meses en los 4 niveles; extracción versionada de KPIs con fechas locales de la cuenta; `sync_runs` con versión de API, ventana, llamadas, filas y error redactado.
+- **Datos**: migraciones `0002_sync.sql` y `0003_sync_rls.sql` con `adsets`, `ads`, `sync_runs`, `insights_daily` particionada por mes (particiones sin acceso directo para `app_rw`), `jobs` y `meta_rate_state`.
+- **API y web**: activar la sincronización de una cuenta (exige el consentimiento `read_insights` de su cliente) encola sus trabajos y desactivarla los cancela; `GET /v1/ad-accounts/:id/sync-runs`; última sincronización en las cuentas y última validación en las conexiones.
+- **Pruebas**: Meta simulado (`test/fake-meta.ts`: rutas, paginación, errores, cabeceras de uso, `appsecret_proof`) y 43 tests nuevos (137 en total): cola, gobernador, extracción, sincronización completa y su API, aislamiento de las tablas y particiones nuevas, y la carrera al editar un miembro.
 - **Backend** Fastify 5 con zod (validación, serialización y OpenAPI en `/v1/openapi.json`), errores RFC 9457 uniformes, log de acceso estructurado sin query strings, `x-request-id`, helmet, límite de peticiones y CSRF por `Origin`.
 - **Configuración** validada con zod al arrancar (`src/platform/config.ts`); `.env.example` con todas las variables.
 - **Base de datos**: Drizzle ORM, migraciones `0000_init.sql` (generada y revisada) y `0001_rls.sql` (aislamiento escrito a mano), BD de tests separada (`ad_astra_test`), `pnpm db:migrate`.
@@ -21,6 +25,8 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y 
 - `platform/access.ts` concentra la lógica de invitaciones y membresías (antes en `modules/tenancy`), para que `platform` no dependa de ningún módulo.
 - CSRF por verificación de `Origin` en lugar del token de doble envío previsto (SECURITY §4.5).
 - `pnpm-workspace.yaml` autoriza los scripts de instalación de `esbuild` (pnpm 11 los bloquea por defecto).
+- Al dar de alta una conexión se encola su validación; revocarla vacía su cola.
+- Editar un miembro que otro administrador acaba de quitar responde 404 en lugar de 500 (condición de carrera detectada por un test).
 
 ## [0.1.0-pre] — F0 (pendiente de cerrar con el spike de Meta)
 

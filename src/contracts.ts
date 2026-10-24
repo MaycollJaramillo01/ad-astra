@@ -108,10 +108,28 @@ export const AdAccountDto = z.object({
   clientId: z.uuid().nullable(),
   syncEnabled: z.boolean(),
   userTasks: z.array(z.string()),
+  lastDiscoveredAt: iso.nullable(),
+  lastEntitiesSyncAt: iso.nullable(),
+  lastInsightsSyncAt: iso.nullable(),
 });
 export const UpdateAdAccountBody = z
   .object({ clientId: z.uuid().nullable().optional(), syncEnabled: z.boolean().optional() })
   .refine((b) => Object.keys(b).length > 0, 'nada que actualizar');
+
+export const SyncRunDto = z.object({
+  id: z.number().int(),
+  kind: z.string(),
+  status: z.enum(['running', 'succeeded', 'partial', 'failed', 'throttled']),
+  apiVersion: z.string(),
+  windowStart: z.string().nullable(),
+  windowEnd: z.string().nullable(),
+  startedAt: iso,
+  finishedAt: iso.nullable(),
+  apiCalls: z.number().int(),
+  rowsUpserted: z.number().int(),
+  errorCode: z.number().int().nullable(),
+  errorMessage: z.string().nullable(), // redactado al guardarlo
+});
 
 export const CampaignDto = z.object({
   metaId: z.string(),
@@ -200,6 +218,7 @@ export type Consent = z.infer<typeof ConsentDto>;
 export type Connection = z.infer<typeof ConnectionDto>;
 export type AdAccount = z.infer<typeof AdAccountDto>;
 export type Campaign = z.infer<typeof CampaignDto>;
+export type SyncRun = z.infer<typeof SyncRunDto>;
 export type Finding = z.infer<typeof FindingDto>;
 export type Recommendation = z.infer<typeof RecommendationDto>;
 export type AuditEvent = z.infer<typeof AuditEventDto>;

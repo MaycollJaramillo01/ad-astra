@@ -80,10 +80,13 @@ export async function tenancyRoutes(fastify: FastifyInstance, { db }: { db: Db }
         if (!canGrantRole(ctx.role, current.role) || !canGrantRole(ctx.role, request.body.role)) {
           throw forbidden('Solo un owner puede conceder o retirar los roles owner y admin');
         }
-        await tx
+        // Si otra petición lo retiró entre la lectura y la escritura, es un 404, no un error.
+        const [updated] = await tx
           .update(memberships)
           .set({ role: request.body.role })
-          .where(eq(memberships.userId, userId));
+          .where(eq(memberships.userId, userId))
+          .returning();
+        if (!updated) throw notFound('Miembro');
         await assertOwnerRemains(tx);
         await userEvent(tx, request, {
           action: 'member.role_changed',

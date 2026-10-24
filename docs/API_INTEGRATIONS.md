@@ -220,6 +220,8 @@ Todo error se guarda redactado (código, subcódigo, `fbtrace_id` y mensaje sin 
 | `activities` | Cada 2 h | Desde el último `event_time` | Síncrono |
 | `token_validation` | Diaria | Cada conexión | Síncrono |
 
+**Estado (2026-10-24):** implementados `token_validation`, `discovery`, `entities` e `insights_*` (en síncrono, partiendo el rango ante 100/1487534, TD-16); `activities` pendiente. Detalle de los resultados de cada trabajo en [ARCHITECTURE.md §6.2](ARCHITECTURE.md#62-sincronización).
+
 **Estimación por cuenta** (SUP-03, ≤ 300 anuncios activos): ~10–15 llamadas/hora en el incremental, ~20–60 por noche en la reexpresión y ~50 jobs asíncronos en un backfill de 13 meses. Con 50 cuentas: ~15–25 mil llamadas al día, muy por debajo de las cuotas de Full por cuenta y hora. En Limited (60 puntos cada 5 minutos por cuenta) basta para el spike y para staging con pocas cuentas.
 
 ### 1.16 Escrituras (F5)

@@ -14,6 +14,7 @@ import type { Db } from './db/client.ts';
 import { auditRoutes } from './modules/audit/routes.ts';
 import { catalogRoutes } from './modules/catalog/routes.ts';
 import { connectionRoutes } from './modules/meta/connections.routes.ts';
+import { tickRoutes } from './modules/meta/tick.routes.ts';
 import { clientRoutes } from './modules/tenancy/clients.routes.ts';
 import { tenancyRoutes } from './modules/tenancy/routes.ts';
 import {
@@ -108,5 +109,6 @@ export async function buildApp({
   await app.register(connectionRoutes, { db, cipher });
   await app.register(catalogRoutes, { db });
   await app.register(auditRoutes, { db });
+  await app.register(tickRoutes, { config, db, cipher });
   return app;
 }

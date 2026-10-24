@@ -1,17 +1,26 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { AdAccountDto, CampaignDto, IdParams, UpdateAdAccountBody } from '../../contracts.ts';
+import {
+  AdAccountDto,
+  CampaignDto,
+  IdParams,
+  SyncRunDto,
+  UpdateAdAccountBody,
+} from '../../contracts.ts';
 import { type Db, first, type Tx, withContext } from '../../db/client.ts';
-import { adAccounts, campaigns, clients } from '../../db/schema.ts';
+import { adAccounts, campaigns, clients, syncRuns } from '../../db/schema.ts';
 import { badRequest, notFound } from '../../platform/errors.ts';
 import { userEvent } from '../../platform/events.ts';
 import { type TenantContext, tenantOf } from '../../platform/http.ts';
+import { cancelAccountJobs, ensureAccountJobs, hasReadConsent } from '../meta/sync.ts';
 import { clientScope } from '../tenancy/clients.routes.ts';
 
-// Cuentas publicitarias y campañas. Las crea la ingesta de Meta (aún no implementada); aquí
-// solo se consultan y se asignan a clientes. Las cuentas sin cliente solo las ven owner y admin.
+// Cuentas publicitarias y campañas. Las crea el descubrimiento de Meta; aquí se consultan, se
+// asignan a clientes y se activa su sincronización. Las cuentas sin cliente solo las ven owner y admin.
+
+const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
 const accountDto = (a: typeof adAccounts.$inferSelect) => ({
   id: a.id,
@@ -23,6 +32,9 @@ const accountDto = (a: typeof adAccounts.$inferSelect) => ({
   clientId: a.clientId,
   syncEnabled: a.syncEnabled,
   userTasks: a.userTasks,
+  lastDiscoveredAt: iso(a.lastDiscoveredAt),
+  lastEntitiesSyncAt: iso(a.lastEntitiesSyncAt),
+  lastInsightsSyncAt: iso(a.lastInsightsSyncAt),
 });
 
 export async function findAccount(tx: Tx, ctx: TenantContext, id: string) {
@@ -75,6 +87,14 @@ export async function catalogRoutes(fastify: FastifyInstance, { db }: { db: Db }
             .where(eq(clients.id, clientId));
           if (!client) throw badRequest('El cliente no existe en esta organización');
         }
+        if (syncEnabled && !before.syncEnabled) {
+          const target = clientId !== undefined ? clientId : before.clientId;
+          if (!(await hasReadConsent(tx, target))) {
+            throw badRequest(
+              'Para sincronizar, la cuenta necesita un cliente con consentimiento read_insights activo',
+            );
+          }
+        }
         const after = first(
           await tx
             .update(adAccounts)
@@ -85,6 +105,12 @@ export async function catalogRoutes(fastify: FastifyInstance, { db }: { db: Db }
             .where(eq(adAccounts.id, before.id))
             .returning(),
         );
+        // Activar encola la sincronización (con backfill); desactivar saca de la cola lo pendiente.
+        if (after.syncEnabled && !before.syncEnabled) {
+          await ensureAccountJobs(tx, ctx.tenantId, after.id, { backfill: true });
+        } else if (!after.syncEnabled && before.syncEnabled) {
+          await cancelAccountJobs(tx, after.id);
+        }
         await userEvent(tx, request, {
           action: 'ad_account.updated',
           targetType: 'ad_account',
@@ -120,6 +146,40 @@ export async function catalogRoutes(fastify: FastifyInstance, { db }: { db: Db }
           effectiveStatus: c.effectiveStatus,
           dailyBudgetMinor: c.dailyBudgetMinor,
           lifetimeBudgetMinor: c.lifetimeBudgetMinor,
+        }));
+      });
+    },
+  );
+
+  app.get(
+    '/v1/ad-accounts/:id/sync-runs',
+    {
+      config: { access: { permission: 'accounts:read' } },
+      schema: { params: IdParams, response: { 200: z.array(SyncRunDto) } },
+    },
+    async (request) => {
+      const ctx = tenantOf(request);
+      return withContext(db, ctx, async (tx) => {
+        const account = await findAccount(tx, ctx, request.params.id);
+        const rows = await tx
+          .select()
+          .from(syncRuns)
+          .where(eq(syncRuns.adAccountId, account.id))
+          .orderBy(desc(syncRuns.id))
+          .limit(50);
+        return rows.map((r) => ({
+          id: r.id,
+          kind: r.kind,
+          status: r.status,
+          apiVersion: r.apiVersion,
+          windowStart: r.windowStart,
+          windowEnd: r.windowEnd,
+          startedAt: r.startedAt.toISOString(),
+          finishedAt: iso(r.finishedAt),
+          apiCalls: r.apiCalls,
+          rowsUpserted: r.rowsUpserted,
+          errorCode: r.errorCode,
+          errorMessage: r.errorMessage,
         }));
       });
     },

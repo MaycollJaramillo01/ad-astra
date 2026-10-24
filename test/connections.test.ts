@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { beforeAll, expect, it } from 'vitest';
 import { withContext } from '../src/db/client.ts';
 import { metaConnections } from '../src/db/schema.ts';
-import { openConnectionToken } from '../src/modules/meta/connections.routes.ts';
+import { openConnectionToken } from '../src/modules/meta/sync.ts';
 import { createTokenCipher, fingerprint } from '../src/platform/crypto.ts';
 import { config, testApp } from './app.ts';
 import { type SeededTenant, seedTenant, testDb } from './seed.ts';

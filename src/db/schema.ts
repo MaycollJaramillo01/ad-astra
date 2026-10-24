@@ -11,6 +11,7 @@ import {
   char,
   check,
   customType,
+  date,
   foreignKey,
   index,
   inet,
@@ -272,10 +273,15 @@ export const adAccounts = pgTable(
     accountStatus: integer('account_status').notNull(),
     userTasks: text('user_tasks').array().notNull().default(sql`'{}'`),
     syncEnabled: boolean('sync_enabled').notNull().default(false),
+    backfillMonths: integer('backfill_months').notNull().default(13),
+    lastDiscoveredAt: ts('last_discovered_at'),
+    lastEntitiesSyncAt: ts('last_entities_sync_at'),
+    lastInsightsSyncAt: ts('last_insights_sync_at'),
     createdAt: createdAt(),
   },
   (t) => [
     unique('ad_accounts_tenant_id_id').on(t.tenantId, t.id),
+    check('ad_accounts_backfill_check', sql`${t.backfillMonths} between 0 and 37`),
     unique('ad_accounts_tenant_meta').on(t.tenantId, t.metaAccountId),
     foreignKey({
       columns: [t.tenantId, t.connectionId],
@@ -316,6 +322,219 @@ export const campaigns = pgTable(
     index('campaigns_account').on(t.tenantId, t.adAccountId),
   ],
 );
+
+// Conjuntos y anuncios: sin FK a campañas a propósito (Meta puede listar un conjunto cuya
+// campaña ya no aparece); el aislamiento lo dan RLS y la FK compuesta a la cuenta.
+export const adsets = pgTable(
+  'adsets',
+  {
+    tenantId: tenantId(),
+    metaId: text('meta_id').notNull(),
+    adAccountId: uuid('ad_account_id').notNull(),
+    campaignMetaId: text('campaign_meta_id').notNull(),
+    name: text('name').notNull(),
+    status: text('status'),
+    effectiveStatus: text('effective_status'),
+    optimizationGoal: text('optimization_goal'),
+    billingEvent: text('billing_event'),
+    bidStrategy: text('bid_strategy'),
+    bidAmountMinor: bigint('bid_amount_minor', { mode: 'number' }),
+    dailyBudgetMinor: bigint('daily_budget_minor', { mode: 'number' }),
+    lifetimeBudgetMinor: bigint('lifetime_budget_minor', { mode: 'number' }),
+    destinationType: text('destination_type'),
+    promotedObject: jsonb('promoted_object'),
+    attributionSpec: jsonb('attribution_spec'),
+    learningStageInfo: jsonb('learning_stage_info'),
+    raw: jsonb('raw').notNull(),
+    firstSeenAt: ts('first_seen_at').notNull().defaultNow(),
+    lastSyncedAt: ts('last_synced_at').notNull(),
+    deletedAt: ts('deleted_at'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.tenantId, t.metaId] }),
+    foreignKey({
+      columns: [t.tenantId, t.adAccountId],
+      foreignColumns: [adAccounts.tenantId, adAccounts.id],
+    }),
+    index('adsets_account').on(t.tenantId, t.adAccountId),
+  ],
+);
+
+export const ads = pgTable(
+  'ads',
+  {
+    tenantId: tenantId(),
+    metaId: text('meta_id').notNull(),
+    adAccountId: uuid('ad_account_id').notNull(),
+    adsetMetaId: text('adset_meta_id').notNull(),
+    campaignMetaId: text('campaign_meta_id').notNull(),
+    creativeMetaId: text('creative_meta_id'),
+    name: text('name').notNull(),
+    status: text('status'),
+    effectiveStatus: text('effective_status'),
+    issuesInfo: jsonb('issues_info'),
+    raw: jsonb('raw').notNull(),
+    firstSeenAt: ts('first_seen_at').notNull().defaultNow(),
+    lastSyncedAt: ts('last_synced_at').notNull(),
+    deletedAt: ts('deleted_at'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.tenantId, t.metaId] }),
+    foreignKey({
+      columns: [t.tenantId, t.adAccountId],
+      foreignColumns: [adAccounts.tenantId, adAccounts.id],
+    }),
+    index('ads_account').on(t.tenantId, t.adAccountId),
+  ],
+);
+
+// --- Operación de la sincronización (ADR-022)
+export const SYNC_KINDS = [
+  'token_validation',
+  'discovery',
+  'entities',
+  'insights_incremental',
+  'insights_restatement',
+  'insights_backfill',
+] as const;
+export type SyncKind = (typeof SYNC_KINDS)[number];
+
+export const syncRuns = pgTable(
+  'sync_runs',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+    tenantId: tenantId(),
+    adAccountId: uuid('ad_account_id'),
+    connectionId: uuid('connection_id'),
+    kind: text('kind', { enum: SYNC_KINDS }).notNull(),
+    apiVersion: text('api_version').notNull(), // requisito RQ-1.7
+    windowStart: date('window_start'),
+    windowEnd: date('window_end'),
+    status: text('status', { enum: ['running', 'succeeded', 'partial', 'failed', 'throttled'] })
+      .notNull()
+      .default('running'),
+    startedAt: ts('started_at').notNull().defaultNow(),
+    finishedAt: ts('finished_at'),
+    apiCalls: integer('api_calls').notNull().default(0),
+    rowsUpserted: integer('rows_upserted').notNull().default(0),
+    errorCode: integer('error_code'),
+    errorSubcode: integer('error_subcode'),
+    errorMessage: text('error_message'), // siempre redactado
+    jobId: bigint('job_id', { mode: 'number' }),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.tenantId, t.adAccountId],
+      foreignColumns: [adAccounts.tenantId, adAccounts.id],
+    }),
+    foreignKey({
+      columns: [t.tenantId, t.connectionId],
+      foreignColumns: [metaConnections.tenantId, metaConnections.id],
+    }),
+    index('sync_runs_account_started').on(t.tenantId, t.adAccountId, t.startedAt),
+    check('sync_runs_kind_check', oneOf(sql`${t.kind}`, SYNC_KINDS)),
+    check(
+      'sync_runs_status_check',
+      oneOf(sql`${t.status}`, ['running', 'succeeded', 'partial', 'failed', 'throttled']),
+    ),
+  ],
+);
+
+// Hechos diarios (ADR-009). Particionada por mes en la migración (Drizzle no declara
+// particiones): las particiones no tienen privilegios para app_rw, solo se accede por la tabla
+// madre, que es la que tiene RLS.
+export const LEVELS = ['account', 'campaign', 'adset', 'ad'] as const;
+export type Level = (typeof LEVELS)[number];
+
+export const insightsDaily = pgTable(
+  'insights_daily',
+  {
+    tenantId: tenantId(),
+    adAccountId: uuid('ad_account_id').notNull(),
+    level: text('level', { enum: LEVELS }).notNull(),
+    entityMetaId: text('entity_meta_id').notNull(),
+    date: date('date').notNull(), // día local de la cuenta
+    currency: char('currency', { length: 3 }).notNull(),
+    attributionSetting: text('attribution_setting'),
+    spend: numeric('spend', { precision: 20, scale: 4 }),
+    impressions: bigint('impressions', { mode: 'number' }),
+    reach: bigint('reach', { mode: 'number' }), // estimado y diario: NO es sumable
+    clicks: bigint('clicks', { mode: 'number' }),
+    inlineLinkClicks: bigint('inline_link_clicks', { mode: 'number' }),
+    outboundClicks: bigint('outbound_clicks', { mode: 'number' }),
+    results: numeric('results', { precision: 20, scale: 4 }),
+    resultIndicator: text('result_indicator'),
+    leads: numeric('leads', { precision: 20, scale: 4 }),
+    purchases: numeric('purchases', { precision: 20, scale: 4 }),
+    purchaseValue: numeric('purchase_value', { precision: 20, scale: 4 }),
+    messagingConversations: numeric('messaging_conversations', { precision: 20, scale: 4 }),
+    appInstalls: numeric('app_installs', { precision: 20, scale: 4 }),
+    landingPageViews: numeric('landing_page_views', { precision: 20, scale: 4 }),
+    thruplays: numeric('thruplays', { precision: 20, scale: 4 }),
+    actions: jsonb('actions'),
+    actionValues: jsonb('action_values'),
+    resultsRaw: jsonb('results_raw'),
+    qualityRanking: text('quality_ranking'),
+    engagementRateRanking: text('engagement_rate_ranking'),
+    conversionRateRanking: text('conversion_rate_ranking'),
+    extractionVersion: integer('extraction_version').notNull(),
+    isFinal: boolean('is_final').notNull().default(false),
+    dataFlags: text('data_flags').array().notNull().default(sql`'{}'`),
+    syncRunId: bigint('sync_run_id', { mode: 'number' }).notNull(),
+    fetchedAt: ts('fetched_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.tenantId, t.level, t.entityMetaId, t.date] }),
+    foreignKey({
+      columns: [t.tenantId, t.adAccountId],
+      foreignColumns: [adAccounts.tenantId, adAccounts.id],
+    }),
+    index('insights_daily_account_level_date').on(t.tenantId, t.adAccountId, t.level, t.date),
+    check('insights_daily_level_check', oneOf(sql`${t.level}`, LEVELS)),
+  ],
+);
+
+// --- Tablas de SISTEMA (sin RLS): las usa el tick para el trabajo de todos los tenants.
+// Solo guardan identificadores, nunca datos de clientes (lo comprueba un test).
+export const jobs = pgTable(
+  'jobs',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id),
+    kind: text('kind').notNull(),
+    payload: jsonb('payload').notNull().default(sql`'{}'::jsonb`),
+    recurringEverySeconds: integer('recurring_every_seconds'),
+    runAfter: ts('run_after').notNull().defaultNow(),
+    lockedUntil: ts('locked_until'),
+    attempts: integer('attempts').notNull().default(0),
+    maxAttempts: integer('max_attempts').notNull().default(5),
+    status: text('status', { enum: ['queued', 'running', 'succeeded', 'failed'] })
+      .notNull()
+      .default('queued'),
+    dedupeKey: text('dedupe_key'),
+    lastError: text('last_error'), // siempre redactado
+    createdAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('jobs_one_active').on(t.dedupeKey).where(sql`${t.status} in ('queued', 'running')`),
+    index('jobs_due').on(t.runAfter).where(sql`${t.status} = 'queued'`),
+    check(
+      'jobs_status_check',
+      oneOf(sql`${t.status}`, ['queued', 'running', 'succeeded', 'failed']),
+    ),
+  ],
+);
+
+/** Bloqueos del gobernador de cuotas por ámbito: '<app_id>|app', '<app_id>|insights', '<app_id>|account:act_…'. */
+export const metaRateState = pgTable('meta_rate_state', {
+  scope: text('scope').primaryKey(),
+  blockedUntil: ts('blocked_until'),
+  lastUsage: jsonb('last_usage'),
+  updatedAt: ts('updated_at').notNull().defaultNow(),
+});
 
 // --- Auditoría de cuentas y recomendaciones (F3 las produce; el modelo existe desde F1)
 export const auditRuns = pgTable(

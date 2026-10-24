@@ -13,12 +13,17 @@ let b: SeededTenant;
 
 // Tablas globales a propósito (Better Auth): un usuario puede pertenecer a varios tenants.
 const GLOBAL_TABLES = ['auth_accounts', 'auth_sessions', 'auth_users', 'auth_verifications'];
+// Tablas de sistema del tick (ADR-022): sin RLS, solo identificadores (test aparte).
+const SYSTEM_TABLES = ['jobs', 'meta_rate_state'];
 
+/** Tablas con tenant_id, sin las de sistema ni las particiones (se accede por la tabla madre). */
 async function tenantTables(): Promise<string[]> {
   const { rows } = await db.execute<{ table_name: string }>(sql`
-    select table_name from information_schema.columns
-    where table_schema = 'public' and column_name = 'tenant_id' order by table_name`);
-  return rows.map((r) => r.table_name);
+    select c.table_name from information_schema.columns c
+    join pg_class k on k.relname = c.table_name and k.relnamespace = 'public'::regnamespace
+    where c.table_schema = 'public' and c.column_name = 'tenant_id' and not k.relispartition
+    order by c.table_name`);
+  return rows.map((r) => r.table_name).filter((t) => !SYSTEM_TABLES.includes(t));
 }
 
 beforeAll(async () => {
@@ -47,11 +52,31 @@ describe('cobertura de RLS', () => {
     }
   });
 
-  it('las únicas tablas sin RLS son las globales de autenticación', async () => {
+  it('las únicas tablas sin RLS son las globales de autenticación y las de sistema', async () => {
     const { rows } = await db.execute<{ relname: string }>(sql`
       select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
-      where n.nspname = 'public' and c.relkind in ('r', 'p') and not c.relrowsecurity order by 1`);
-    expect(rows.map((r) => r.relname)).toEqual(GLOBAL_TABLES);
+      where n.nspname = 'public' and c.relkind in ('r', 'p') and not c.relispartition
+        and not c.relrowsecurity order by 1`);
+    expect(rows.map((r) => r.relname)).toEqual([...GLOBAL_TABLES, ...SYSTEM_TABLES].sort());
+  });
+
+  it('las particiones no son accesibles directamente: solo por la tabla madre, que tiene RLS', async () => {
+    const { rows } = await db.execute<{ part: string; readable: boolean }>(sql`
+      select c.relname as part, has_table_privilege(current_user, c.oid, 'SELECT') as readable
+      from pg_inherits i join pg_class c on c.oid = i.inhrelid
+      where i.inhparent = 'insights_daily'::regclass`);
+    expect(rows.length).toBeGreaterThan(70);
+    expect(rows.filter((r) => r.readable).map((r) => r.part)).toEqual([]);
+    expect(await pgError(db.execute(sql`select * from insights_daily_2026_10`))).toMatchObject({
+      code: '42501',
+    });
+  });
+
+  it('la tabla de trabajos solo guarda identificadores en su payload', async () => {
+    const { rows } = await db.execute<{ key: string }>(
+      sql`select distinct jsonb_object_keys(payload) as key from jobs`,
+    );
+    for (const { key } of rows) expect(key, key).toMatch(/^(adAccountId|connectionId|monthsDone)$/);
   });
 
   it('el rol de la aplicación no puede saltarse RLS ni crear tablas', async () => {
