@@ -27,6 +27,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import {
+  AI_TURN_STATUSES,
   CONSENT_SCOPES,
   FINDING_STATUSES,
   RECOMMENDATION_ACTIONS,
@@ -756,6 +757,104 @@ export const auditConfigs = pgTable(
       columns: [t.tenantId, t.clientId],
       foreignColumns: [clients.tenantId, clients.id],
     }).onDelete('cascade'),
+  ],
+);
+
+// --- Asistente de IA (F4). Las conversaciones son de su usuario (RLS por app_user_id()).
+
+export const aiConversations = pgTable(
+  'ai_conversations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: tenantId(),
+    userId: uuid('user_id').notNull(),
+    title: text('title').notNull(),
+    /** Proveedor y modelo fijos por conversación: el historial nativo solo vale para ellos. */
+    provider: text('provider').notNull(),
+    model: text('model').notNull(),
+    createdAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    unique('ai_conversations_tenant_id_id').on(t.tenantId, t.id),
+    index('ai_conversations_user').on(t.tenantId, t.userId, t.updatedAt),
+  ],
+);
+
+/** Turnos: la pregunta (user) y la respuesta con su verificación, traza y transcripción nativa. */
+export const aiMessages = pgTable(
+  'ai_messages',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+    tenantId: tenantId(),
+    conversationId: uuid('conversation_id').notNull(),
+    role: text('role', { enum: ['user', 'assistant'] }).notNull(),
+    /** Texto de la pregunta (user). Retención de contenido: 90 días. */
+    content: text('content'),
+    /** Vista desde la que se preguntó: { level, id }. */
+    view: jsonb('view'),
+    status: text('status', { enum: AI_TURN_STATUSES }),
+    answer: jsonb('answer'),
+    verification: jsonb('verification'),
+    /** Llamadas a herramientas con su entrada, evidencia, suficiencia, duración y errores. */
+    trace: jsonb('trace'),
+    /** Mensajes nativos del turno (se reenvían sin cambios en el siguiente) y resultados pendientes. */
+    transcript: jsonb('transcript'),
+    pending: jsonb('pending'),
+    /** Textos de terceros retirados por posible inyección. */
+    flags: jsonb('flags'),
+    usage: jsonb('usage'),
+    costUsd: numeric('cost_usd', { precision: 12, scale: 6 }),
+    model: text('model'),
+    promptVersion: text('prompt_version'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.tenantId, t.conversationId],
+      foreignColumns: [aiConversations.tenantId, aiConversations.id],
+    }).onDelete('cascade'),
+    index('ai_messages_conversation').on(t.tenantId, t.conversationId, t.id),
+    check('ai_messages_role_check', oneOf(sql`${t.role}`, ['user', 'assistant'])),
+    check(
+      'ai_messages_status_check',
+      sql`${t.status} is null or ${oneOf(sql`${t.status}`, AI_TURN_STATUSES)}`,
+    ),
+  ],
+);
+
+/** Uso y costo de cada llamada al LLM (solo inserción, sin contenido). Base de los presupuestos. */
+export const llmUsage = pgTable(
+  'llm_usage',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+    tenantId: tenantId(),
+    userId: uuid('user_id'),
+    conversationId: uuid('conversation_id'),
+    purpose: text('purpose', { enum: ['assistant', 'eval'] }).notNull(),
+    provider: text('provider').notNull(),
+    model: text('model').notNull(),
+    promptVersion: text('prompt_version').notNull(),
+    inputTokens: integer('input_tokens').notNull(),
+    outputTokens: integer('output_tokens').notNull(),
+    cacheReadTokens: integer('cache_read_tokens').notNull(),
+    cacheWriteTokens: integer('cache_write_tokens').notNull(),
+    costUsd: numeric('cost_usd', { precision: 12, scale: 6 }).notNull(),
+    latencyMs: integer('latency_ms').notNull(),
+    status: text('status', { enum: ['ok', 'refusal', 'max_tokens', 'error'] }).notNull(),
+    stopReason: text('stop_reason'),
+    fallback: boolean('fallback').notNull().default(false),
+    requestId: text('request_id'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('llm_usage_tenant_at').on(t.tenantId, t.createdAt),
+    index('llm_usage_user_at').on(t.tenantId, t.userId, t.createdAt),
+    check('llm_usage_purpose_check', oneOf(sql`${t.purpose}`, ['assistant', 'eval'])),
+    check(
+      'llm_usage_status_check',
+      oneOf(sql`${t.status}`, ['ok', 'refusal', 'max_tokens', 'error']),
+    ),
   ],
 );
 

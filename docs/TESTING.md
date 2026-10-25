@@ -25,7 +25,7 @@
 | End-to-end | Flujos críticos en el navegador | Playwright (+ axe para accesibilidad) | PR a `main` |
 | Rendimiento | p95 de dashboards con el dataset sintético de referencia | Script de carga (autocannon o k6) | Cierre de fase |
 | Estadística y modelos | Recuperación de parámetros, tasa de falsos positivos, calibración, backtesting | Vitest con semillas | Cada PR (rápidas) y cierre de fase (completas) |
-| Evals de IA (F4) | Exactitud de cifras, lenguaje no causal, cobertura de la pregunta, inyección | Script de evals con resultados versionados | Cambios de prompt o de modelo, y cierre de fase |
+| Evals de IA (F4) | Exactitud de cifras, lenguaje no causal, cobertura de la pregunta, inyección | Deterministas con un proveedor guionizado (`test/ai.test.ts`, cada PR) y en vivo con el modelo real (`pnpm ai:eval`, manual y autorizada, §10) | Cada PR; en vivo, en cambios de prompt o de modelo y al cierre de fase |
 | Manuales autorizadas | Spike, conciliación con Ads Manager, escrituras en sandbox | Procedimiento §9 | Cuando se planifica |
 
 ## 3. Entornos y datos de prueba
@@ -111,6 +111,12 @@ Cada fase añade aquí una entrada al cerrar: fecha, commit, resultado por crite
 | 2026-10-24 | F3 | Motor de punta a punta (`audit.test.ts`, 8) contra Postgres: ejecución por la API, huella reproducible, sin duplicados, descartes respetados, resolución tras 2 evaluaciones limpias, reapertura, salud guardada y recalculable, alcance por cliente, catálogo publicado y configuración validada que cambia las referencias; y sincronización → auditoría en `sync.test.ts` | ✓ ciclo de vida de CA-F3-04 |
 | 2026-10-24 | F3 | Navegador integrado con los datos "Demo": la anomalía plantada aparece en el anuncio, su conjunto y su campaña; corregidos en la prueba un falso positivo de cambio brusco en una campaña en pausa (con test) y una estabilidad que se hundía cuando la cuenta es casi perfectamente estable (con test) | ✓ |
 
+| 2026-10-24 | F4 | Verificador (`answer.test.ts`, 10): cifras en formato español e inglés, escalas y porcentajes, ambigüedad de separadores, evidencia, entidades, hallazgos, fechas, suficiencia, acciones con datos insuficientes, importe propuesto, lenguaje y prioridad | ✓ |
+| 2026-10-24 | F4 | Proveedor Anthropic contra un `fetch` falso (`ai-provider.test.ts`, 7): petición (pensamiento adaptativo, esfuerzo, herramientas estrictas sin palabras clave no admitidas, caché, respaldo, sin muestreo), reenvío del contenido nativo y de los mensajes de sistema, normalización, respaldo cobrado al modelo que respondió, rechazo y errores sin la clave | ✓ |
+| 2026-10-24 | F4 | Asistente de punta a punta (`ai.test.ts`, 29) con datos sintéticos y un proveedor guionizado: respuesta fiel verificada con uso, costo, traza y evento; segundo turno con el historial idéntico; herramientas sobre los datos (descomposición, hallazgos, salud, comparación a medida); **11 evaluaciones contra respuestas inventadas** (cifra en `figures` o en el texto, evidencia, entidad, hallazgo o fecha inexistentes, garantía, causa afirmada, suficiencia exagerada, acción con datos insuficientes, afirmaciones sin consultar) con un solo turno de corrección; inyección en el nombre de una campaña; otro tenant, cliente sin consentimiento y analista sin clientes; herramientas de escritura inexistentes; límites de llamadas y consultas; rechazo; presupuestos mensual, diario y por pregunta; IA sin clave (503); rol viewer y privacidad de conversaciones; propuesta a la cola y decisión humana; inventario y cierre de importaciones; y en `rls.test.ts`, la privacidad de las conversaciones entre usuarios del mismo tenant | ✓ CA-F4-01, 02 y 04; CA-F4-03 en lo determinista |
+| 2026-10-24 | F4 | Navegador integrado con los datos "Demo" y una conversación temporal generada con el proveedor guionizado (borrada después): estados verificado y sin verificar, suficiencia, evidencia, recomendación con prioridad, propuesta a la cola contra la API real, móvil sin desbordamiento y estado "no configurado" sin clave | ✓ |
+| — | F4 | Evaluación en vivo con el modelo real (`pnpm ai:eval`) | Pendiente: clave del proveedor y autorización (TD-29) |
+
 ## 9. Pruebas manuales autorizadas
 
 **Procedimiento:**
@@ -123,3 +129,8 @@ Cada fase añade aquí una entrada al cerrar: fecha, commit, resultado por crite
 | Fecha | Prueba | Cuenta(s) (alias) | Autorizada por | Resultado | Evidencia |
 |---|---|---|---|---|---|
 | — | — | — | — | — | — |
+
+## 10. Evaluación en vivo del asistente
+
+`pnpm ai:eval -- --tenant <uuid> --user <uuid> --yes` hace un set fijo de preguntas (rendimiento, explicación, prioridades, una métrica que puede no existir, una predicción que no debe inventar y una orden de pausar que no puede ejecutar) al modelo configurado con los datos de la BD indicada, y muestra por pregunta el estado, las cifras verificadas, los problemas del verificador, si la respuesta afirma haber ejecutado algo y el costo. Gasta dinero: sin `--yes` solo informa del tope (preguntas × `AI_QUESTION_BUDGET_USD`) y sin `ANTHROPIC_API_KEY` se niega. El uso queda en `llm_usage` con `purpose = 'eval'`. Se ejecuta con la autorización del responsable y su resultado se registra en §8.
+

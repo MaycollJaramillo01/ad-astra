@@ -6,10 +6,9 @@ import * as s from '../src/db/schema.ts';
 import { ENGINE_VERSION } from '../src/modules/audit/engine.ts';
 import type { Component } from '../src/modules/audit/health.ts';
 import { combine } from '../src/modules/audit/health.ts';
-import type { EntityInput } from '../src/modules/audit/model.ts';
 import { testApp } from './app.ts';
-import { AS_OF, inEvaluation, leadsDay, series, stack, sumDays } from './audit-fixtures.ts';
-import { addMember, type SeededTenant, seedTenant, testDb } from './seed.ts';
+import { AS_OF, inEvaluation, leadsDay, series, stack } from './audit-fixtures.ts';
+import { addMember, loadEntities, type SeededTenant, seedTenant, testDb } from './seed.ts';
 
 // Motor de auditoría de punta a punta: datos sintéticos en Postgres → ejecución por la API →
 // hallazgos con su ciclo de vida, historial y salud diaria, con RLS y alcance por cliente.
@@ -25,86 +24,6 @@ const leads = (id: string, base: [number, number], now: [number, number]) =>
       inEvaluation(back) ? leadsDay(now[0], now[1]) : leadsDay(base[0], base[1]),
     ),
   );
-
-/** Inserta entidades y sus días como si los hubiera traído la sincronización. */
-async function load(
-  tenantId: string,
-  adAccountId: string,
-  metaAccountId: string,
-  entities: EntityInput[],
-  replace = false,
-) {
-  await withContext(db, { tenantId }, async (tx) => {
-    if (replace)
-      await tx.delete(s.insightsDaily).where(eq(s.insightsDaily.adAccountId, adAccountId));
-    const [run] = await tx
-      .insert(s.syncRuns)
-      .values({ tenantId, adAccountId, kind: 'insights_backfill', apiVersion: 'v26.0' })
-      .returning();
-    const now = new Date();
-    if (!replace) {
-      for (const e of entities) {
-        const common = {
-          tenantId,
-          metaId: e.id,
-          adAccountId,
-          name: e.name,
-          effectiveStatus: e.status,
-          raw: {},
-          lastSyncedAt: now,
-        };
-        if (e.level === 'campaign')
-          await tx.insert(s.campaigns).values({ ...common, objective: e.objective });
-        if (e.level === 'adset')
-          await tx.insert(s.adsets).values({
-            ...common,
-            campaignMetaId: e.campaignId ?? '',
-            optimizationGoal: e.optimizationGoal,
-          });
-        if (e.level === 'ad')
-          await tx.insert(s.ads).values({
-            ...common,
-            adsetMetaId: e.parentId ?? '',
-            campaignMetaId: e.campaignId ?? '',
-          });
-      }
-    }
-    const rows = [
-      ...entities.map((e) => ({ e, level: e.level, id: e.id, days: e.days })),
-      {
-        e: null,
-        level: 'account' as const,
-        id: metaAccountId,
-        days: sumDays(entities.filter((x) => x.level === 'campaign').flatMap((x) => x.days)),
-      },
-    ].flatMap(({ e, level, id, days }) =>
-      days.map((d) => ({
-        tenantId,
-        adAccountId,
-        level,
-        entityMetaId: id,
-        campaignMetaId: e?.campaignId ?? null,
-        adsetMetaId: e?.level === 'ad' ? e.parentId : e?.level === 'adset' ? e.id : null,
-        date: d.date,
-        currency: 'USD',
-        attributionSetting: d.attribution,
-        spend: String(d.spend),
-        impressions: d.impressions,
-        reach: d.reach,
-        clicks: d.clicks,
-        inlineLinkClicks: d.inlineLinkClicks,
-        results: level === 'account' ? null : String(d.results),
-        resultIndicator: level === 'account' ? null : d.resultIndicator,
-        leads: String(d.leads),
-        extractionVersion: 1,
-        syncRunId: run!.id,
-        fetchedAt: now,
-      })),
-    );
-    for (let i = 0; i < rows.length; i += 500)
-      await tx.insert(s.insightsDaily).values(rows.slice(i, i + 500));
-  });
-}
 
 const entitiesV1 = () => [
   ...leads('1', [100, 10], [100, 3]),
@@ -144,7 +63,7 @@ beforeAll(async () => {
       .returning(),
   );
   accountId = acc!.id;
-  await load(a.tenantId, accountId, 'act_777000111', entitiesV1());
+  await loadEntities(db, a.tenantId, accountId, 'act_777000111', entitiesV1());
 });
 
 describe('ejecución y persistencia', () => {
@@ -229,7 +148,8 @@ describe('ejecución y persistencia', () => {
     expect((await eventsOf(tracking!.id)).map((e) => e.event)).toEqual(['opened', 'decided']);
 
     // Los datos se normalizan: todas las campañas a su costo habitual.
-    await load(
+    await loadEntities(
+      db,
       a.tenantId,
       accountId,
       'act_777000111',
@@ -254,7 +174,7 @@ describe('ejecución y persistencia', () => {
     expect((await eventsOf(eff!.id)).map((e) => e.event)).toEqual(['opened', 'resolved']);
 
     // Si la condición vuelve, se abre de nuevo y queda como reapertura.
-    await load(a.tenantId, accountId, 'act_777000111', entitiesV1(), true);
+    await loadEntities(db, a.tenantId, accountId, 'act_777000111', entitiesV1(), true);
     await audit();
     const reopened = (await openFindings()).find((f) => f.fingerprint === 'R-EFF-001:campaign:10');
     expect(reopened?.id).not.toBe(eff!.id);

@@ -14,8 +14,7 @@ import {
   insightsDaily,
 } from '../../db/schema.ts';
 import type { Job, JobHandler } from '../../platform/jobs.ts';
-import { addDays } from '../insights/catalog.ts';
-import { localDate } from '../meta/insights.ts';
+import { addDays, localDate } from '../insights/catalog.ts';
 import { ENGINE_VERSION, runAudit } from './engine.ts';
 import {
   type AuditConfig,

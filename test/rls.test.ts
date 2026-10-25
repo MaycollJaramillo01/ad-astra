@@ -32,7 +32,7 @@ beforeAll(async () => {
 });
 
 /** Tablas de historial: se insertan y se leen, nunca se cambian ni se borran. */
-const APPEND_ONLY = ['audit_log', 'finding_events'];
+const APPEND_ONLY = ['audit_log', 'finding_events', 'llm_usage'];
 
 describe('cobertura de RLS', () => {
   it('toda tabla con tenant_id tiene RLS activado y forzado, con al menos una política', async () => {
@@ -186,6 +186,50 @@ describe('políticas especiales', () => {
     expect(mine.every((m) => m.userId === a.owner.id)).toBe(true);
   });
 
+  it('una conversación con la IA solo la ve su usuario, aunque otro sea del mismo tenant', async () => {
+    const colleague = await seedUser(db);
+    await withContext(db, { tenantId: a.tenantId }, (tx) =>
+      tx
+        .insert(s.memberships)
+        .values({ tenantId: a.tenantId, userId: colleague.id, role: 'admin' }),
+    );
+    const as = (userId: string) =>
+      withContext(db, { tenantId: a.tenantId, userId }, async (tx) => ({
+        conversations: await tx.select().from(s.aiConversations),
+        messages: await tx.select().from(s.aiMessages),
+      }));
+    const mine = await as(a.owner.id);
+    expect(mine.conversations.length).toBe(1);
+    expect(mine.messages.length).toBe(1);
+    expect(await as(colleague.id)).toEqual({ conversations: [], messages: [] });
+    // Tampoco puede escribir en ella ni crear una a nombre de otro.
+    expect(
+      await pgError(
+        withContext(db, { tenantId: a.tenantId, userId: colleague.id }, (tx) =>
+          tx.insert(s.aiMessages).values({
+            tenantId: a.tenantId,
+            conversationId: mine.conversations[0]!.id,
+            role: 'user',
+            content: 'intrusa',
+          }),
+        ),
+      ),
+    ).toMatchObject({ code: '42501' });
+    expect(
+      await pgError(
+        withContext(db, { tenantId: a.tenantId, userId: colleague.id }, (tx) =>
+          tx.insert(s.aiConversations).values({
+            tenantId: a.tenantId,
+            userId: a.owner.id,
+            title: 'suplantada',
+            provider: 'anthropic',
+            model: 'claude-opus-5-5',
+          }),
+        ),
+      ),
+    ).toMatchObject({ code: '42501' });
+  });
+
   it('un invitado ve sus invitaciones pendientes y no las de otros', async () => {
     const outsider = await seedUser(db);
     await withContext(db, { tenantId: a.tenantId }, (tx) =>
@@ -200,7 +244,7 @@ describe('políticas especiales', () => {
     expect(seen.map((i) => i.email)).toEqual([outsider.email]);
   });
 
-  it('audit_log y finding_events son de solo inserción y no admiten filas de otro tenant', async () => {
+  it('audit_log, finding_events y llm_usage son de solo inserción y no admiten filas de otro tenant', async () => {
     for (const t of APPEND_ONLY) {
       for (const statement of [
         sql`update ${sql.identifier(t)} set tenant_id = tenant_id`,

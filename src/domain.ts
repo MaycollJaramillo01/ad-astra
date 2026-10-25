@@ -34,3 +34,13 @@ export const RECOMMENDATION_STATUSES = [
   'applied',
   'expired',
 ] as const;
+
+/** Resultado de un turno del asistente de IA (F4). */
+export const AI_TURN_STATUSES = [
+  'answered', // respuesta verificada
+  'unverified', // respuesta mostrada con cifras o citas sin verificar
+  'refused', // el modelo (y su respaldo) rechazó la petición
+  'budget_exhausted',
+  'incomplete', // límite de llamadas o herramientas sin respuesta final
+  'failed', // error del proveedor
+] as const;

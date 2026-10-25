@@ -1,5 +1,5 @@
 import type { Level } from '../../db/schema.ts';
-import { addDays } from '../insights/catalog.ts';
+import { addDays, localDate } from '../insights/catalog.ts';
 
 // Conversión de filas de Insights a columnas canónicas (ADR-009, DATABASE_SCHEMA §3.4). Funciones
 // puras y versionadas: si cambia la lógica, sube EXTRACTION_VERSION y un trabajo recalcula
@@ -83,16 +83,7 @@ export function parseResults(raw: unknown): {
 // --- Fechas: los días de Insights son locales de la cuenta.
 
 /** 'YYYY-MM-DD' del instante dado en la zona horaria de la cuenta. */
-export function localDate(timeZone: string, at = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(at);
-}
-
-export { addDays };
+export { addDays, localDate };
 
 /** Primer y último día del mes que está `monthsBack` meses antes del mes de `today`. */
 export function monthRange(today: string, monthsBack: number): { since: string; until: string } {

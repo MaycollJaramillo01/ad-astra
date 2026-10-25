@@ -219,6 +219,14 @@ export function DashboardPage({ role }: { role: Role }) {
         {r.node.objective && (
           <span className="text-sm text-gray-500">· {objectiveLabel(r.node.objective)}</span>
         )}
+        {role !== 'viewer' && (
+          <Link
+            className="ml-auto text-sm underline"
+            to={`/asistente?nivel=${r.node.level}${r.node.id ? `&id=${r.node.id}` : ''}`}
+          >
+            Preguntar a la IA sobre esta vista
+          </Link>
+        )}
       </header>
       <Toolbar report={r} sp={sp} set={set} />
       <div className={`space-y-5 transition-opacity ${stale ? 'opacity-60' : ''}`}>

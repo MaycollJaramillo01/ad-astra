@@ -27,7 +27,7 @@ import { badRequest, forbidden, notFound } from '../../platform/errors.ts';
 import { userEvent } from '../../platform/events.ts';
 import { type TenantContext, tenantOf } from '../../platform/http.ts';
 import { seesAllClients } from '../../platform/rbac.ts';
-import { findAccount } from '../catalog/routes.ts';
+import { findAccount } from '../catalog/accounts.ts';
 import { clientScope } from '../tenancy/clients.routes.ts';
 import { ENGINE_VERSION } from './engine.ts';
 import {
@@ -49,7 +49,7 @@ const OPEN = ['open', 'acknowledged', 'snoozed'] as const;
 const CHILD = { account: 'campaign', campaign: 'adset', adset: 'ad', ad: null } as const;
 
 /** Cuenta de una entidad (con el alcance por cliente) y los ids de Meta de toda su rama. */
-async function resolveEntity(
+export async function resolveEntity(
   tx: Tx,
   ctx: TenantContext,
   level: 'account' | 'campaign' | 'adset' | 'ad',
@@ -134,6 +134,116 @@ function validatePatch(
   return merged;
 }
 
+/** Salud de una entidad, su historial, los hallazgos abiertos de su rama y la salud de sus hijos. */
+export async function entityAudit(
+  tx: Tx,
+  ctx: TenantContext,
+  level: 'account' | 'campaign' | 'adset' | 'ad',
+  id: string,
+) {
+  const { account, entityMetaId, branch } = await resolveEntity(tx, ctx, level, id);
+  const rows = await tx
+    .select()
+    .from(healthScores)
+    .where(
+      and(
+        eq(healthScores.adAccountId, account.id),
+        eq(healthScores.entityLevel, level),
+        eq(healthScores.entityMetaId, entityMetaId),
+      ),
+    )
+    .orderBy(desc(healthScores.date))
+    .limit(30);
+  const latest = rows[0] ?? null;
+
+  const open = await tx
+    .select()
+    .from(findings)
+    .where(
+      and(
+        eq(findings.adAccountId, account.id),
+        inArray(findings.status, [...OPEN]),
+        branch ? inArray(findings.entityMetaId, branch) : undefined,
+      ),
+    )
+    .orderBy(desc(findings.priority), desc(findings.lastSeenAt))
+    .limit(200);
+  const names = new Map<string, string>([[account.metaAccountId, account.name]]);
+  for (const t of [campaigns, adsets, ads]) {
+    const ids = open.map((f) => f.entityMetaId).filter((x) => !names.has(x));
+    if (ids.length)
+      for (const r of await tx
+        .select({ id: t.metaId, name: t.name })
+        .from(t)
+        .where(inArray(t.metaId, ids)))
+        names.set(r.id, r.name);
+  }
+
+  const childLevel = CHILD[level];
+  const childrenHealth: Record<
+    string,
+    { score: number | null; grade: (typeof healthScores.$inferSelect)['grade'] }
+  > = {};
+  if (childLevel && latest) {
+    const children = await tx
+      .select()
+      .from(healthScores)
+      .where(
+        and(
+          eq(healthScores.adAccountId, account.id),
+          eq(healthScores.entityLevel, childLevel),
+          eq(healthScores.date, latest.date),
+          branch ? inArray(healthScores.entityMetaId, branch) : undefined,
+        ),
+      );
+    for (const c of children)
+      childrenHealth[c.entityMetaId] = {
+        score: c.score === null ? null : Number(c.score),
+        grade: c.grade,
+      };
+  }
+
+  return {
+    health: latest ? healthDto(latest) : null,
+    history: rows
+      .map((r) => ({
+        date: r.date,
+        score: r.score === null ? null : Number(r.score),
+        grade: r.grade,
+      }))
+      .reverse(),
+    findings: open.map((f) => ({
+      id: f.id,
+      adAccountId: f.adAccountId,
+      kind: f.kind,
+      ruleId: f.ruleId,
+      ruleVersion: f.ruleVersion,
+      entityLevel: f.entityLevel,
+      entityMetaId: f.entityMetaId,
+      entityName: names.get(f.entityMetaId) ?? null,
+      severity: f.severity,
+      confidence: f.confidence,
+      priority: f.priority,
+      impact: f.impact,
+      evidence: f.evidence,
+      recommendationKey: f.recommendationKey,
+      status: f.status,
+      firstSeenAt: f.firstSeenAt.toISOString(),
+      lastSeenAt: f.lastSeenAt.toISOString(),
+      decisionReason: f.decisionReason,
+      category: f.category,
+      profile: f.profile,
+      explanation: f.explanation,
+      recommendationText: f.recommendationText,
+      engineVersion: f.engineVersion,
+      windowStart: f.windowStart,
+      windowEnd: f.windowEnd,
+      resolvedAt: f.resolvedAt ? f.resolvedAt.toISOString() : null,
+    })),
+    childrenHealth,
+  };
+}
+
 export async function auditEngineRoutes(fastify: FastifyInstance, { db }: { db: Db }) {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
@@ -172,109 +282,7 @@ export async function auditEngineRoutes(fastify: FastifyInstance, { db }: { db: 
     async (request) => {
       const ctx = tenantOf(request);
       const { level, id } = request.query;
-      return withContext(db, ctx, async (tx) => {
-        const { account, entityMetaId, branch } = await resolveEntity(tx, ctx, level, id);
-        const rows = await tx
-          .select()
-          .from(healthScores)
-          .where(
-            and(
-              eq(healthScores.adAccountId, account.id),
-              eq(healthScores.entityLevel, level),
-              eq(healthScores.entityMetaId, entityMetaId),
-            ),
-          )
-          .orderBy(desc(healthScores.date))
-          .limit(30);
-        const latest = rows[0] ?? null;
-
-        const open = await tx
-          .select()
-          .from(findings)
-          .where(
-            and(
-              eq(findings.adAccountId, account.id),
-              inArray(findings.status, [...OPEN]),
-              branch ? inArray(findings.entityMetaId, branch) : undefined,
-            ),
-          )
-          .orderBy(desc(findings.priority), desc(findings.lastSeenAt))
-          .limit(200);
-        const names = new Map<string, string>([[account.metaAccountId, account.name]]);
-        for (const t of [campaigns, adsets, ads]) {
-          const ids = open.map((f) => f.entityMetaId).filter((x) => !names.has(x));
-          if (ids.length)
-            for (const r of await tx
-              .select({ id: t.metaId, name: t.name })
-              .from(t)
-              .where(inArray(t.metaId, ids)))
-              names.set(r.id, r.name);
-        }
-
-        const childLevel = CHILD[level];
-        const childrenHealth: Record<
-          string,
-          { score: number | null; grade: (typeof healthScores.$inferSelect)['grade'] }
-        > = {};
-        if (childLevel && latest) {
-          const children = await tx
-            .select()
-            .from(healthScores)
-            .where(
-              and(
-                eq(healthScores.adAccountId, account.id),
-                eq(healthScores.entityLevel, childLevel),
-                eq(healthScores.date, latest.date),
-                branch ? inArray(healthScores.entityMetaId, branch) : undefined,
-              ),
-            );
-          for (const c of children)
-            childrenHealth[c.entityMetaId] = {
-              score: c.score === null ? null : Number(c.score),
-              grade: c.grade,
-            };
-        }
-
-        return {
-          health: latest ? healthDto(latest) : null,
-          history: rows
-            .map((r) => ({
-              date: r.date,
-              score: r.score === null ? null : Number(r.score),
-              grade: r.grade,
-            }))
-            .reverse(),
-          findings: open.map((f) => ({
-            id: f.id,
-            adAccountId: f.adAccountId,
-            kind: f.kind,
-            ruleId: f.ruleId,
-            ruleVersion: f.ruleVersion,
-            entityLevel: f.entityLevel,
-            entityMetaId: f.entityMetaId,
-            entityName: names.get(f.entityMetaId) ?? null,
-            severity: f.severity,
-            confidence: f.confidence,
-            priority: f.priority,
-            impact: f.impact,
-            evidence: f.evidence,
-            recommendationKey: f.recommendationKey,
-            status: f.status,
-            firstSeenAt: f.firstSeenAt.toISOString(),
-            lastSeenAt: f.lastSeenAt.toISOString(),
-            decisionReason: f.decisionReason,
-            category: f.category,
-            profile: f.profile,
-            explanation: f.explanation,
-            recommendationText: f.recommendationText,
-            engineVersion: f.engineVersion,
-            windowStart: f.windowStart,
-            windowEnd: f.windowEnd,
-            resolvedAt: f.resolvedAt ? f.resolvedAt.toISOString() : null,
-          })),
-          childrenHealth,
-        };
-      });
+      return withContext(db, ctx, (tx) => entityAudit(tx, ctx, level, id));
     },
   );
 

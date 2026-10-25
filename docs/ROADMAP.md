@@ -189,6 +189,10 @@ Plantilla de cada fase: (1) objetivo y alcance · (2) requisitos funcionales y n
 
 ### 4.5 F4 — Copiloto IA de solo lectura y reportes ejecutivos
 
+> **Estado (2026-10-24): asistente implementado y probado con un proveedor guionizado; faltan la evaluación en vivo con el modelo real (autorizada y con clave), los documentos aprobados, los reportes en lote y el streaming (TD-24 a TD-29).**
+> - ✅ Interfaz `LlmProvider` con adaptador Anthropic (pensamiento adaptativo, esfuerzo explícito, herramientas estrictas, caché, respaldo del servidor); 5 herramientas de solo lectura con permisos, esquemas de entrada y salida, consentimiento `ai_processing` y suficiencia de datos; respuesta estructurada con evidencia, hipótesis y recomendaciones (impacto como hipótesis, confianza, dependencias, riesgo y acción); prioridad determinista; verificador de cifras, ids, entidades, suficiencia y lenguaje con un turno de corrección; neutralización de textos de terceros; límites de llamadas y presupuestos con `llm_usage`; conversaciones privadas con traza; propuesta de recomendaciones a la cola de aprobación; vista `/asistente`.
+> - Criterios: CA-F4-01, 02 y 04 cumplidos con tests; CA-F4-03 cubierto en lo determinista (nombres con instrucciones retirados, otro tenant inaccesible, herramientas de escritura inexistentes) y pendiente de la evaluación en vivo; CA-F4-05 espera a los documentos (TD-24); CA-F4-06 es del piloto.
+
 1. **Objetivo y alcance.** Explicar variaciones, interpretar auditorías, priorizar oportunidades, responder preguntas y redactar reportes con cifras verificables, sin capacidad de escritura.
 2. **Requisitos.**
    - FR: interfaz `LlmProvider` con la implementación de Anthropic; herramientas de solo lectura ([ARCHITECTURE §6.8](ARCHITECTURE.md#68-capa-de-ia-f4)); chat por cliente y cuenta con citas de evidencia; explicación de hallazgos; comparación de periodos y estrategias; reportes ejecutivos semanales y mensuales generados en lote; documentos con flujo de aprobación y búsqueda FTS; verificador de cifras; presupuestos y registro de uso; prompts versionados en el repositorio; set de evals.
@@ -297,6 +301,12 @@ Se revisa al cierre de cada fase. Cada entrada indica el impacto y cuándo se pa
 | TD-21 | F3 | Sin alertas ni notificaciones (tipos del requisito 8, políticas, email, resumen), sin marcas "útil / no útil" y sin interfaz para decidir hallazgos ni para editar la configuración y los objetivos KPI (la API existe) | Los hallazgos solo se ven en el dashboard | F3 (siguiente paso) |
 | TD-22 | F3 | Umbrales, pesos y piso de estabilidad por defecto sin calibrar con datos reales (complementa TD-01) | Falsos positivos o negativos en el piloto | Piloto de F3 |
 | TD-23 | F2 | Analítica sin conversión de monedas (opcional en ADR-020), alcance de las ventanas estándar 7/14/28 días, anotaciones de cambios, desgloses en vivo ni perfiles KPI editables; p95 sin medir con el dataset de referencia | Vistas menos completas que el plan de F2 | Cierre de F2 |
+| TD-24 | F4 | Sin documentos aprobados ni su búsqueda (`search_approved_documents`, CA-F4-05), ni las herramientas `get_alert_history`, `get_entity_config` y `get_change_log` (esperan a las alertas y al registro de cambios), ni reportes ejecutivos en lote | El asistente responde solo con métricas, hallazgos y salud | F4 (siguiente paso) |
+| TD-25 | F4 | Sin el trabajo que purga el contenido de `ai_messages` a los 90 días (DATABASE_SCHEMA §6) | El contenido de las conversaciones se conserva más de lo previsto | Antes de producción |
+| TD-26 | F4 | Sin streaming ni `capabilities` en `LlmProvider`: la respuesta llega entera tras el bucle (hasta varios segundos por llamada) | Espera sin progreso visible | F4, si la experiencia de uso lo pide |
+| TD-27 | F4 | Presupuestos por entorno, iguales para todas las organizaciones, sin interfaz para cambiarlos | Cambiar un límite exige redesplegar | F7 (SaaS) o antes si la agencia lo pide |
+| TD-28 | F4 | La reserva de presupuesto no bloquea: dos preguntas simultáneas del mismo usuario pueden pasarse ligeramente del límite | Exceso acotado por el límite por pregunta | Si el uso concurrente crece |
+| TD-29 | F4 | Evaluación en vivo (`pnpm ai:eval`) escrita pero sin ejecutar: necesita una clave del proveedor con presupuesto y la autorización del responsable; set de ≥ 50 preguntas con los gestores pendiente; DPA con el proveedor pendiente | La tasa real de respuestas verificadas y la resistencia a inyección del modelo están sin medir | Antes de abrir el asistente al equipo |
 
 ## 7. Supuestos de capacidad
 

@@ -11,6 +11,8 @@ import {
 } from 'fastify-type-provider-zod';
 import type { Logger } from 'pino';
 import type { Db } from './db/client.ts';
+import { createProvider, type LlmProvider } from './modules/ai/provider.ts';
+import { aiRoutes } from './modules/ai/routes.ts';
 import { auditEngineRoutes } from './modules/audit/engine.routes.ts';
 import { auditRoutes } from './modules/audit/routes.ts';
 import { catalogRoutes } from './modules/catalog/routes.ts';
@@ -37,6 +39,8 @@ export interface AppDeps {
   logger?: Logger;
   /** Solo los tests lo sustituyen; en ejecución real es siempre la sesión de Better Auth. */
   authenticate?: Authenticate;
+  /** Solo los tests lo sustituyen (proveedor guionizado); null desactiva la IA. */
+  llm?: LlmProvider | null;
 }
 
 export async function buildApp({
@@ -44,6 +48,7 @@ export async function buildApp({
   db,
   logger,
   authenticate,
+  llm,
 }: AppDeps): Promise<FastifyInstance> {
   const app = Fastify({
     loggerInstance: (logger ?? createLogger(undefined, config.LOG_LEVEL)) as FastifyBaseLogger,
@@ -114,5 +119,10 @@ export async function buildApp({
   await app.register(auditEngineRoutes, { db });
   await app.register(insightsRoutes, { db });
   await app.register(tickRoutes, { config, db, cipher });
+  await app.register(aiRoutes, {
+    db,
+    config,
+    llm: llm !== undefined ? llm : await createProvider(config),
+  });
   return app;
 }

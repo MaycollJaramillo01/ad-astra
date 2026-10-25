@@ -87,11 +87,16 @@ src/
                              hallazgos, recomendaciones y registro de eventos (consulta y decisión)
                           ⏳ alertas y notificaciones (TD-21)
     alerts/ notifications/   ⏳ F3
-    ai/                   ⏳ F4
+    ai/                   ✅ proveedor LLM desacoplado (provider.ts) con adaptador Anthropic,
+                             herramientas de solo lectura (tools.ts), respuesta estructurada,
+                             prioridad y verificador (answer.ts), orquestador con límites y
+                             presupuestos (assistant.ts) y API (routes.ts)
+                          ⏳ documentos aprobados, reportes en lote, streaming (TD-24, TD-26)
     optimization/         ⏳ F5
     forecasting/          ⏳ F6
 web/src/                  ✅ SPA: login con Google, organización activa, clientes, cuentas, conexiones,
-                             analítica (dashboard.tsx, chart.tsx) y auditoría (audit.tsx)
+                             analítica (dashboard.tsx, chart.tsx), auditoría (audit.tsx) y
+                             asistente de IA (assistant.tsx)
 migrations/               ✅ SQL generado y revisado; 0001_rls.sql y 0003_sync_rls.sql con el aislamiento
 scripts/worker.ts         ✅ tick en local (pnpm dev:worker)
 test/                     ✅ integración y seguridad contra Postgres real
@@ -372,6 +377,18 @@ flowchart LR
 - **Contexto documental aprobado:** solo documentos en estado `approved` (playbooks, briefs, benchmarks) son recuperables; la memoria institucional (decisiones sobre hallazgos, resultados de acciones) se consulta con herramientas y no se supone memorizada.
 - **Defensas contra prompt injection:** nombres de entidades, textos de creatividades y documentos se devuelven envueltos y etiquetados como datos no confiables; las instrucciones del operador van en el prompt de sistema (o en mensajes de sistema intermedios); ninguna herramienta tiene red ni escritura; las salidas se renderizan como texto y markdown saneado sin HTML activo; suite de inyección en la CI.
 - **Costos:** presupuesto mensual por tenant y diario por usuario, registro de tokens y costo por petición (`llm_usage`), caché de prompts, API de lotes para reportes nocturnos, `max_tokens` y número de llamadas a herramientas acotados.
+
+**Implementado (2026-10-24):**
+
+- **Proveedor:** interfaz `LlmProvider` (`src/modules/ai/provider.ts`): `generate(petición) → resultado` con bloques neutrales (texto, llamada y resultado de herramienta), contenido nativo que se reenvía sin cambios, uso de tokens, costo y `stop_reason` normalizado (incluido `refusal`). Se elige por configuración (`AI_PROVIDER`, `AI_MODEL`, `AI_EFFORT`); sin clave, las rutas de IA responden 503 y nunca se simula una respuesta. Adaptador Anthropic en `anthropic.ts` ([API_INTEGRATIONS §2.2](API_INTEGRATIONS.md#22-proveedor-inicial-anthropic)).
+- **Herramientas (solo lectura, `tools.ts`):** `get_scope`, `get_metrics` (comparación anterior, interanual o a medida; filas de los hijos o serie diaria; variaciones ya calculadas), `decompose_change`, `get_findings` y `get_health`. Cada una declara su permiso RBAC, valida entrada y salida con zod, corre con el contexto del usuario (RLS y alcance por cliente) y solo sobre clientes con consentimiento `ai_processing` (la cartera excluye y cuenta las cuentas sin él). Todas devuelven una **suficiencia de datos** determinista (`sufficient`, `limited` o `insufficient`, con motivos: sin entrega, sin sincronizar, menos de 1.000 impresiones o 10 resultados, varios tipos de resultado, días aún por madurar, comparación vacía, sincronización de más de 36 h, otras monedas o cuentas excluidas). Los textos de terceros se limpian (sin caracteres de control ni bidi, acotados) y se retiran si parecen instrucciones. Aplazadas: `get_alert_history`, `get_entity_config`, `get_change_log` y `search_approved_documents` (TD-24).
+- **Respuesta estructurada:** la herramienta `submit_answer` (esquema en `answer.ts`) es la única forma de responder: resumen, suficiencia, afirmaciones con evidencia y cifras, hipótesis con confianza y cómo comprobarlas, recomendaciones y preguntas de seguimiento. Cada recomendación incluye evidencia, impacto esperado como hipótesis (métrica, dirección y magnitud), confianza con su motivo, dependencias, riesgo y una acción sugerida (`pause`, `activate`, `set_daily_budget`, `set_lifetime_budget` o `review`) sobre una entidad que aparezca en la evidencia.
+- **Prioridad (determinista):** `prioridad = confianza (baja 0,4 · media 0,7 · alta 0,9) × magnitud del impacto (1 · 2 · 3) × factor de riesgo (bajo 1 · medio 0,75 · alto 0,5) ÷ 2,7`, entre 0 y 1; las recomendaciones se devuelven ordenadas por ella.
+- **Verificador (`verifyAnswer`):** evidencia citada obligatoria y existente; cada cifra de `figures` aparece en su evidencia (con la tolerancia del redondeo escrito, también como porcentaje de una fracción); toda cifra del texto aparece en la evidencia citada (formatos español e inglés, sufijos mil, k y M, % y puntos porcentuales; los enteros de 0 a 10 sin unidad se tratan como conteos); las fechas ISO, uuids e ids de Meta del texto existen en la evidencia; la entidad de la acción y los hallazgos relacionados existen; la suficiencia declarada no es mejor que la peor de la evidencia citada; con datos insuficientes solo caben acciones `review` (o confianza baja); sin lenguaje de certeza ni causas afirmadas como hecho, y el impacto redactado como hipótesis. Si falla, el modelo tiene **un** turno para corregir; si persiste, la respuesta se muestra marcada "sin verificar" y las recomendaciones con problemas no se pueden proponer.
+- **Orquestador (`assistant.ts`):** bucle manual con límites (8 llamadas al modelo, 16 consultas a herramientas, 16.000 tokens por llamada, 1 corrección, 1 recordatorio de usar `submit_answer`, 20 turnos por conversación). Prompt de sistema y herramientas fijos (`assistant-v1`), con lo que el prefijo se cachea; el contexto de cada pregunta (fecha, vista, primer id de evidencia) entra como mensaje de sistema intermedio. El historial es solo de anexar: se reenvía el contenido nativo con sus bloques de pensamiento, y solo los turnos con respuesta pasan al contexto siguiente. Proveedor y modelo quedan fijos por conversación.
+- **Costos:** `llm_usage` por llamada (también las fallidas); presupuestos `AI_MONTHLY_BUDGET_USD` (organización y mes), `AI_USER_DAILY_BUDGET_USD` (usuario y día) y `AI_QUESTION_BUDGET_USD` (pregunta). Antes de cada llamada se reserva una cota (entrada estimada más un cuarto de `max_tokens`): sin saldo al empezar, 429 y evento `ai.budget_blocked`; sin saldo a mitad de turno, estado `budget_exhausted`. Límite de `AI_ASK_PER_MINUTE` preguntas por usuario y minuto.
+- **Sin escritura y con aprobación:** el inventario solo tiene herramientas de lectura (test) y el cierre de importaciones de `ai` no alcanza `meta` ni `optimization` (test); una llamada a una herramienta desconocida se rechaza y queda en la traza. El usuario puede **proponer** una recomendación verificada a la cola (`recommendations`, origen `ai`, estado `open`), donde owner, admin o manager la aceptan o descartan; aceptarla no ejecuta nada hasta F5.
+- **Trazabilidad:** cada turno guarda en `ai_messages` la respuesta, la verificación, la traza de herramientas (entrada, evidencia, suficiencia, duración y error), los textos retirados, el uso y el costo, y registra `ai.asked` en `audit_log`.
 
 ### 6.9 Centro de optimización (F5)
 

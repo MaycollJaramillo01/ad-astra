@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
+import { eq, sql } from 'drizzle-orm';
 import { createDb, type Db, withContext } from '../src/db/client.ts';
 import * as s from '../src/db/schema.ts';
+import type { EntityInput } from '../src/modules/audit/model.ts';
+import { sumDays } from './audit-fixtures.ts';
 
 // Datos de prueba. Todo se crea con el rol de la aplicación (app_rw) y el contexto de tenant
 // correspondiente: si una política RLS fuera incorrecta, los propios seeds lo destaparían.
@@ -201,6 +204,40 @@ export async function seedTenant(db: Db, label = `org-${uniq()}`) {
       syncRunId: syncRun!.id,
       fetchedAt: new Date(),
     });
+    // Asistente de IA: la conversación es del owner (su RLS exige app_user_id()).
+    await tx.execute(sql`select set_config('app.user_id', ${owner.id}, true)`);
+    const [conversation] = await tx
+      .insert(s.aiConversations)
+      .values({
+        tenantId,
+        userId: owner.id,
+        title: 'Conversación de prueba',
+        provider: 'anthropic',
+        model: 'claude-opus-5-5',
+      })
+      .returning();
+    await tx.insert(s.aiMessages).values({
+      tenantId,
+      conversationId: conversation!.id,
+      role: 'user',
+      content: '¿Qué tal va la cuenta?',
+    });
+    await tx.insert(s.llmUsage).values({
+      tenantId,
+      userId: owner.id,
+      conversationId: conversation!.id,
+      purpose: 'assistant',
+      provider: 'anthropic',
+      model: 'claude-opus-5-5',
+      promptVersion: 'test',
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      costUsd: '0.000140',
+      latencyMs: 1,
+      status: 'ok',
+    });
     return {
       tenantId,
       owner,
@@ -248,5 +285,86 @@ export async function addClientWithAccount(db: Db, t: SeededTenant) {
       })
       .returning();
     return { client: client!, account: account! };
+  });
+}
+
+/** Inserta entidades y sus días como si los hubiera traído la sincronización. */
+export async function loadEntities(
+  db: Db,
+  tenantId: string,
+  adAccountId: string,
+  metaAccountId: string,
+  entities: EntityInput[],
+  replace = false,
+) {
+  await withContext(db, { tenantId }, async (tx) => {
+    if (replace)
+      await tx.delete(s.insightsDaily).where(eq(s.insightsDaily.adAccountId, adAccountId));
+    const [run] = await tx
+      .insert(s.syncRuns)
+      .values({ tenantId, adAccountId, kind: 'insights_backfill', apiVersion: 'v26.0' })
+      .returning();
+    const now = new Date();
+    if (!replace) {
+      for (const e of entities) {
+        const common = {
+          tenantId,
+          metaId: e.id,
+          adAccountId,
+          name: e.name,
+          effectiveStatus: e.status,
+          raw: {},
+          lastSyncedAt: now,
+        };
+        if (e.level === 'campaign')
+          await tx.insert(s.campaigns).values({ ...common, objective: e.objective });
+        if (e.level === 'adset')
+          await tx.insert(s.adsets).values({
+            ...common,
+            campaignMetaId: e.campaignId ?? '',
+            optimizationGoal: e.optimizationGoal,
+          });
+        if (e.level === 'ad')
+          await tx.insert(s.ads).values({
+            ...common,
+            adsetMetaId: e.parentId ?? '',
+            campaignMetaId: e.campaignId ?? '',
+          });
+      }
+    }
+    const rows = [
+      ...entities.map((e) => ({ e, level: e.level, id: e.id, days: e.days })),
+      {
+        e: null,
+        level: 'account' as const,
+        id: metaAccountId,
+        days: sumDays(entities.filter((x) => x.level === 'campaign').flatMap((x) => x.days)),
+      },
+    ].flatMap(({ e, level, id, days }) =>
+      days.map((d) => ({
+        tenantId,
+        adAccountId,
+        level,
+        entityMetaId: id,
+        campaignMetaId: e?.campaignId ?? null,
+        adsetMetaId: e?.level === 'ad' ? e.parentId : e?.level === 'adset' ? e.id : null,
+        date: d.date,
+        currency: 'USD',
+        attributionSetting: d.attribution,
+        spend: String(d.spend),
+        impressions: d.impressions,
+        reach: d.reach,
+        clicks: d.clicks,
+        inlineLinkClicks: d.inlineLinkClicks,
+        results: level === 'account' ? null : String(d.results),
+        resultIndicator: level === 'account' ? null : d.resultIndicator,
+        leads: String(d.leads),
+        extractionVersion: 1,
+        syncRunId: run!.id,
+        fetchedAt: now,
+      })),
+    );
+    for (let i = 0; i < rows.length; i += 500)
+      await tx.insert(s.insightsDaily).values(rows.slice(i, i + 500));
   });
 }

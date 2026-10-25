@@ -50,6 +50,20 @@
       "when": 1792877759139,
       "tag": "0006_audit_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792881635350,
+      "tag": "0007_ai",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792881640742,
+      "tag": "0008_ai_rls",
+      "breakpoints": true
     }
   ]
 }

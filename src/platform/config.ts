@@ -58,6 +58,17 @@ const schema = z
     /** Plazo de cada tick: menor que la duración máxima de la función en Vercel. */
     TICK_BUDGET_SECONDS: z.coerce.number().int().positive().default(240),
     TICK_CONCURRENCY: z.coerce.number().int().min(1).max(10).default(3),
+    /** Asistente de IA (F4). Sin clave, sus rutas responden 503: nunca se simula una respuesta. */
+    ANTHROPIC_API_KEY: optional(z.string().min(20)),
+    AI_PROVIDER: z.enum(['anthropic']).default('anthropic'),
+    AI_MODEL: z.enum(['claude-opus-5-5', 'claude-sonnet-5-5']).default('claude-opus-5-5'),
+    AI_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('medium'),
+    /** Límites de costo en USD: por organización y mes, por usuario y día, y por pregunta. */
+    AI_MONTHLY_BUDGET_USD: z.coerce.number().nonnegative().default(100),
+    AI_USER_DAILY_BUDGET_USD: z.coerce.number().nonnegative().default(10),
+    AI_QUESTION_BUDGET_USD: z.coerce.number().positive().default(1),
+    /** Preguntas por usuario y minuto. */
+    AI_ASK_PER_MINUTE: z.coerce.number().int().positive().default(10),
   })
   .refine((c) => c.TOKEN_ENCRYPTION_KEYS.has(c.TOKEN_ENCRYPTION_KEY_VERSION), {
     path: ['TOKEN_ENCRYPTION_KEY_VERSION'],

@@ -14,8 +14,7 @@ import {
 import { notFound } from '../../platform/errors.ts';
 import type { TenantContext } from '../../platform/http.ts';
 import { seesAllClients } from '../../platform/rbac.ts';
-import { findAccount } from '../catalog/routes.ts';
-import { localDate } from '../meta/insights.ts';
+import { findAccount } from '../catalog/accounts.ts';
 import { clientScope } from '../tenancy/clients.routes.ts';
 import {
   addDays,
@@ -25,6 +24,7 @@ import {
   type DateRange,
   daysBetween,
   emptyTotals,
+  localDate,
   type NodeLevel,
   type Preset,
   resolvePreset,
@@ -46,7 +46,7 @@ export interface ReportQuery {
   currency?: string;
 }
 
-type Account = typeof adAccounts.$inferSelect;
+export type Account = typeof adAccounts.$inferSelect;
 interface Windows {
   cur: DateRange;
   prev: DateRange | null;
@@ -381,8 +381,17 @@ function mostCommon<T>(values: T[]): T | undefined {
   return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
 }
 
-export async function buildReport(tx: Tx, ctx: TenantContext, q: ReportQuery) {
-  const node = await resolveNode(tx, ctx, q.level, q.id);
+/** `onlyAccounts` restringe las cuentas que se suman (p. ej. las de clientes con consentimiento de IA). */
+export async function buildReport(
+  tx: Tx,
+  ctx: TenantContext,
+  q: ReportQuery,
+  onlyAccounts?: (a: Account) => boolean,
+) {
+  const resolved = await resolveNode(tx, ctx, q.level, q.id);
+  const node = onlyAccounts
+    ? { ...resolved, accounts: resolved.accounts.filter(onlyAccounts) }
+    : resolved;
   const timezone = mostCommon(node.accounts.map((a) => a.timezoneName)) ?? 'UTC';
   const today = localDate(timezone);
   const cur =

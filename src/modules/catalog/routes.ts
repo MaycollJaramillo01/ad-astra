@@ -9,13 +9,14 @@ import {
   SyncRunDto,
   UpdateAdAccountBody,
 } from '../../contracts.ts';
-import { type Db, first, type Tx, withContext } from '../../db/client.ts';
+import { type Db, first, withContext } from '../../db/client.ts';
 import { adAccounts, campaigns, clients, syncRuns } from '../../db/schema.ts';
-import { badRequest, notFound } from '../../platform/errors.ts';
+import { badRequest } from '../../platform/errors.ts';
 import { userEvent } from '../../platform/events.ts';
-import { type TenantContext, tenantOf } from '../../platform/http.ts';
+import { tenantOf } from '../../platform/http.ts';
 import { cancelAccountJobs, ensureAccountJobs, hasReadConsent } from '../meta/sync.ts';
 import { clientScope } from '../tenancy/clients.routes.ts';
+import { findAccount } from './accounts.ts';
 
 // Cuentas publicitarias y campañas. Las crea el descubrimiento de Meta; aquí se consultan, se
 // asignan a clientes y se activa su sincronización. Las cuentas sin cliente solo las ven owner y admin.
@@ -36,15 +37,6 @@ const accountDto = (a: typeof adAccounts.$inferSelect) => ({
   lastEntitiesSyncAt: iso(a.lastEntitiesSyncAt),
   lastInsightsSyncAt: iso(a.lastInsightsSyncAt),
 });
-
-export async function findAccount(tx: Tx, ctx: TenantContext, id: string) {
-  const [row] = await tx
-    .select()
-    .from(adAccounts)
-    .where(and(eq(adAccounts.id, id), clientScope(tx, ctx, adAccounts.clientId)));
-  if (!row) throw notFound('Cuenta publicitaria');
-  return row;
-}
 
 export async function catalogRoutes(fastify: FastifyInstance, { db }: { db: Db }) {
   const app = fastify.withTypeProvider<ZodTypeProvider>();

@@ -4,7 +4,7 @@
 
 ## 0. Estado de implementación (2026-10-24)
 
-La fuente de verdad es `src/db/schema.ts` más las migraciones de `migrations/` (de `0000` a `0006`): `0000_init.sql` y `0002_sync.sql` (generadas y revisadas; la segunda, retocada a mano para particionar `insights_daily`), y `0001_rls.sql` y `0003_sync_rls.sql` (aislamiento y particiones, escritas a mano). El resto de este documento es el diseño completo; aquí se indica qué existe ya y en qué difiere del boceto.
+La fuente de verdad es `src/db/schema.ts` más las migraciones de `migrations/` (de `0000` a `0008`): `0000_init.sql` y `0002_sync.sql` (generadas y revisadas; la segunda, retocada a mano para particionar `insights_daily`), y `0001_rls.sql` y `0003_sync_rls.sql` (aislamiento y particiones, escritas a mano). El resto de este documento es el diseño completo; aquí se indica qué existe ya y en qué difiere del boceto.
 
 | Implementado | Diferencia con el boceto |
 |---|---|
@@ -25,7 +25,10 @@ La fuente de verdad es `src/db/schema.ts` más las migraciones de `migrations/` 
 | `finding_events` (nueva) | Historial de cada hallazgo (`opened`, `updated`, `resolved`, `reopened`, `decided`), **solo inserción** como `audit_log` (`0006_audit_rls.sql`) |
 | `health_scores` | PK `(tenant_id, entity_level, entity_meta_id, date, formula_version)`; puntuación null = datos insuficientes; componentes en jsonb para recalcularla |
 | `audit_configs` (nueva) | Sustituye a `rule_configs` y `kpi_targets` (ADR-023): un parche jsonb por organización (`client_id` null) o por cliente, único con `NULLS NOT DISTINCT` |
-| Pendiente (F1 resto, F3) | `meta_api_calls`, `creatives`, `entity_changes`, `meta_activities`, `notification_*` |
+| `ai_conversations` (`0007_ai.sql`, `0008_ai_rls.sql`) | Conversación del asistente con proveedor y modelo fijos (el historial nativo solo vale para ellos). **RLS por usuario**: solo la ve quien la creó, aunque otro sea del mismo tenant |
+| `ai_messages` | Un turno = la pregunta (`user`) y la respuesta (`assistant`) con estado, respuesta estructurada, verificación, traza de herramientas, transcripción nativa y resultados pendientes (para reenviar el turno sin cambios), textos retirados por inyección, uso y costo. Hereda la visibilidad de su conversación |
+| `llm_usage` | Una fila por llamada al LLM (también las fallidas), sin contenido: base de los presupuestos. **Solo inserción** como `audit_log` |
+| Pendiente (F1 resto, F3, F4) | `meta_api_calls`, `creatives`, `entity_changes`, `meta_activities`, `notification_*`, `documents`, `document_chunks`, `reports` |
 
 ## 1. Convenciones
 
@@ -567,8 +570,8 @@ create table audit_log (
 
 | Fase | Tabla | Propósito |
 |---|---|---|
-| F4 | `llm_usage` | Proveedor, modelo, versión de prompt, propósito, tokens (entrada, salida, caché), costo, latencia, estado; sin contenido |
-| F4 | `ai_conversations`, `ai_messages` | Conversaciones con referencias de evidencia y llamadas a herramientas; contenido con retención de 90 días |
+| F4 ✅ | `llm_usage` | Proveedor, modelo, versión de prompt, propósito, tokens (entrada, salida, caché), costo, latencia, estado; sin contenido (implementada, §0) |
+| F4 ✅ | `ai_conversations`, `ai_messages` | Conversaciones con referencias de evidencia y llamadas a herramientas; contenido con retención de 90 días (implementadas, §0; la purga, TD-25) |
 | F4 | `documents`, `document_chunks` | Documentos con estado (`draft`, `approved`, `archived`), aprobador y fecha; fragmentos con `tsvector` (FTS); `embedding vector` solo si se adopta pgvector |
 | F4 | `reports` | Reportes ejecutivos generados: periodo, versión de plantilla, evidencias, estado de verificación |
 | F5 | `action_proposals` | Tipo, parámetros, snapshot actual, justificación, origen (`rule`, `ai`, `user`), impacto esperado, estado (máquina de estados de ARCHITECTURE §6.9), proponente, aprobadores, expiración |

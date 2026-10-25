@@ -585,6 +585,16 @@ export function accountStatus(code: number | null): { label: string; tone: Tone 
 
 // --- Fechas: días locales de la cuenta ('YYYY-MM-DD'), con la semántica de los presets de Meta.
 
+/** Día local ('YYYY-MM-DD') en una zona horaria IANA. */
+export function localDate(timeZone: string, at = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(at);
+}
+
 export function addDays(day: string, n: number): string {
   const d = new Date(`${day}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + n);

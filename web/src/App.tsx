@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Navigate, NavLink, Route, Routes } from 'react-router';
 import type { Me } from '../../src/contracts.ts';
 import { ApiError, api, authClient, getActiveTenant, setActiveTenant } from './api.ts';
+import { AssistantPage } from './assistant.tsx';
 import { DashboardPage } from './dashboard.tsx';
 import { AccountsPage, ClientsPage, ConnectionsPage, ErrorBox } from './pages.tsx';
 
@@ -29,6 +30,7 @@ export function App() {
         <Route path="/" element={<Navigate to="/analitica" replace />} />
         <Route path="/analitica" element={<DashboardPage role={active.role} />} />
         <Route path="/analitica/:level/:id" element={<DashboardPage role={active.role} />} />
+        <Route path="/asistente" element={<AssistantPage role={active.role} />} />
         <Route path="/clientes" element={<ClientsPage role={active.role} />} />
         <Route path="/cuentas" element={<AccountsPage role={active.role} />} />
         <Route path="/conexiones" element={<ConnectionsPage role={active.role} />} />
@@ -51,6 +53,7 @@ function Shell({
   const isAdmin = me.memberships.some(
     (m) => m.tenantId === activeTenantId && ['owner', 'admin'].includes(m.role),
   );
+  const canUseAi = me.memberships.some((m) => m.tenantId === activeTenantId && m.role !== 'viewer');
   const link = ({ isActive }: { isActive: boolean }) =>
     `rounded px-3 py-1.5 text-sm ${isActive ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`;
 
@@ -83,6 +86,11 @@ function Shell({
           <NavLink to="/analitica" className={link}>
             Analítica
           </NavLink>
+          {canUseAi && (
+            <NavLink to="/asistente" className={link}>
+              Asistente IA
+            </NavLink>
+          )}
           <NavLink to="/clientes" className={link}>
             Clientes
           </NavLink>

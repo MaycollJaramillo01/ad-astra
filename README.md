@@ -51,6 +51,12 @@ El login necesita un cliente OAuth de Google Cloud de tipo "Aplicación web", co
 pnpm dev:worker
 ```
 
+**Asistente de IA (opcional).** Con `ANTHROPIC_API_KEY` en `.env.local`, la vista `/asistente` responde con los datos sincronizados de los clientes con consentimiento `ai_processing`. Sin ella, la IA queda desactivada (503): nunca simula respuestas. Los límites de costo se configuran con las variables `AI_*` (detalles en `.env.example`). La evaluación en vivo gasta dinero y es manual (docs/TESTING.md §10):
+
+```bash
+pnpm ai:eval -- --tenant <uuid> --user <uuid>
+```
+
 ## Comprobaciones (las mismas que la CI)
 
 ```bash

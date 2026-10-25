@@ -356,6 +356,8 @@ interface LlmProvider {
 
 Reglas: el resto del sistema solo ve `LlmProvider`; los prompts y los esquemas de herramientas son independientes del proveedor; cada petición registra proveedor, modelo, versión de prompt, tokens, costo y latencia en `llm_usage`.
 
+**Implementado (2026-10-24, `src/modules/ai/provider.ts`):** `LlmProvider { id, model, generate(req) }`; la petición lleva sistema, herramientas (nombre, descripción y esquema JSON neutral), mensajes (`user`, `assistant` con su contenido nativo y `system` intermedio), `maxTokens` y `effort`; el resultado, bloques neutrales, contenido nativo, `stop_reason` normalizado (`end_turn`, `tool_use`, `max_tokens`, `refusal`, `other`), uso (entrada, salida, lectura y escritura de caché), costo, modelo que respondió, si actuó el respaldo, latencia e id de petición. Los fallos del proveedor llegan clasificados (`LlmError`: límite, no disponible, rechazo, credencial) y sin la clave. `stream` y `capabilities` quedan aplazados (TD-26): el asistente responde en una petición síncrona.
+
 ### 2.2 Proveedor inicial: Anthropic
 
 Datos de la referencia oficial del SDK (caché del 2026-10-06; se reverifican al implementar F4):
@@ -377,6 +379,14 @@ Implicaciones de diseño:
 - **`stop_reason: "refusal"`** se trata explícitamente; se valora activar los *fallbacks* del lado del servidor al implementar.
 - **`inference_geo`** disponible si la residencia de datos lo exige (PQ-04).
 - El SDK reintenta 408, 409, 429 y 5xx (2 veces por defecto) e integra OpenTelemetry.
+
+**Decisiones de la implementación (2026-10-24, `src/modules/ai/anthropic.ts`, SDK `@anthropic-ai/sdk` 1.2):**
+- `client.beta.messages.create` con `model` de `AI_MODEL` (`claude-opus-5-5` por defecto o `claude-sonnet-5-5`), `thinking: {type: "adaptive"}`, `output_config.effort` explícito (`AI_EFFORT`, `medium` por defecto), `tool_choice: auto`, herramientas con `strict: true` y `cache_control` automático en el nivel superior. Sin `temperature`, `top_p` ni `top_k`.
+- **Respaldo del servidor activado:** `fallbacks: "default"` con la cabecera beta `server-side-fallback-2026-07-01`. Si el modelo rechaza la petición por política, la API la reintenta en el modelo recomendado dentro de la misma llamada; el uso indica si actuó (`usage.iterations` con `fallback_message`) y el costo se calcula con el precio del modelo que respondió. Un `refusal` final (también del respaldo) cierra el turno sin respuesta.
+- Bloques de pensamiento reenviados sin cambios; con `thinking.block_binding.prefix_mismatch_behavior: "drop_block"` (cabecera `thinking-binding-controls-2026-08-01`) un bloque antiguo que deje de casar con el prefijo (p. ej. tras cambiar el prompt de sistema) se descarta en lugar de romper la conversación.
+- El modo estricto no admite restricciones numéricas, de longitud ni de tamaño de array: se quitan del esquema enviado (todas las propiedades quedan obligatorias y sin adicionales) y zod las sigue validando al recibir cada llamada.
+- Precios usados para el costo y los presupuestos (USD por millón de tokens, entrada / salida / lectura de caché / escritura de caché): Opus 5.5 4 / 20 / 0,20 / 5; Sonnet 5.5 2 / 10 / 0,20 / 2,5; Opus 5 y Opus 4.8 (posibles modelos de respaldo) 5 / 25 / 0,50 / 6,25. Un modelo sin precio conocido se cobra al más caro.
+- Probado contra un `fetch` falso (`test/ai-provider.test.ts`): forma de la petición, reenvío del contenido nativo, normalización, detección del respaldo y clasificación de errores. Sin red ni clave real en la CI.
 
 ### 2.3 Embeddings
 

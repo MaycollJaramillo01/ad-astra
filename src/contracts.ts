@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  AI_TURN_STATUSES,
   CONSENT_SCOPES,
   FINDING_STATUSES,
   RECOMMENDATION_ACTIONS,
@@ -7,6 +8,7 @@ import {
   ROLES,
   SEVERITIES,
 } from './domain.ts';
+import { Answer, SUFFICIENCY } from './modules/ai/answer.ts';
 import { AuditConfigPatch } from './modules/audit/model.ts';
 import {
   BASE_FIELDS,
@@ -414,6 +416,83 @@ export const PutAuditConfigBody = z.object({
   patch: AuditConfigPatch,
 });
 
+// --- Asistente de IA (F4)
+
+export const AiAskBody = z.object({
+  conversationId: z.uuid().nullable().default(null),
+  question: z.string().trim().min(3).max(2000),
+  /** Vista desde la que se pregunta (contexto para el modelo, no un permiso). */
+  view: z
+    .object({ level: z.enum(NODE_LEVELS), id: z.string().max(64).nullable() })
+    .nullable()
+    .default(null),
+});
+export const AiAnswerDto = Answer.extend({
+  recommendations: z.array(Answer.shape.recommendations.element.extend({ priority: z.number() })),
+});
+export const AiVerificationDto = z.object({
+  status: z.enum(['verified', 'unverified']),
+  issues: z.array(z.object({ path: z.string(), code: z.string(), message: z.string() })),
+  figures: z.object({ checked: z.number(), verified: z.number() }),
+});
+export const AiEvidenceDto = z.object({
+  toolUseId: z.string(),
+  evidenceId: z.string().nullable(),
+  tool: z.string(),
+  input: z.unknown(),
+  status: z.enum(['ok', 'error']),
+  sufficiency: z.enum(SUFFICIENCY).nullable(),
+  ms: z.number(),
+  error: z.object({ code: z.string(), message: z.string() }).nullable(),
+});
+export const AiMessageDto = z.object({
+  id: z.number(),
+  role: z.enum(['user', 'assistant']),
+  content: z.string().nullable(),
+  status: z.enum(AI_TURN_STATUSES).nullable(),
+  answer: AiAnswerDto.nullable(),
+  verification: AiVerificationDto.nullable(),
+  evidence: z.array(AiEvidenceDto),
+  injectionFlags: z.number(),
+  costUsd: z.number().nullable(),
+  model: z.string().nullable(),
+  promptVersion: z.string().nullable(),
+  createdAt: iso,
+});
+export const AiTurnDto = z.object({ conversationId: z.uuid(), message: AiMessageDto });
+export const AiConversationDto = z.object({
+  id: z.uuid(),
+  title: z.string(),
+  model: z.string(),
+  createdAt: iso,
+  updatedAt: iso,
+});
+export const AiConversationDetailDto = AiConversationDto.extend({
+  messages: z.array(AiMessageDto),
+});
+export const AiTraceDto = z.object({
+  messageId: z.number(),
+  evidence: z.array(AiEvidenceDto.extend({ output: z.unknown() })),
+  usage: z.unknown(),
+});
+export const AiStatusDto = z.object({
+  enabled: z.boolean(),
+  provider: z.string(),
+  model: z.string(),
+  effort: z.string(),
+  budgets: z.object({
+    monthlyUsd: z.number(),
+    spentMonthUsd: z.number(),
+    userDailyUsd: z.number(),
+    spentTodayUsd: z.number(),
+    perQuestionUsd: z.number(),
+  }),
+});
+export const AiMessageParams = z.object({ id: z.coerce.number().int().positive() });
+export const AiProposeParams = AiMessageParams.extend({
+  index: z.coerce.number().int().min(0).max(5),
+});
+
 export type Me = z.infer<typeof MeDto>;
 export type Member = z.infer<typeof MemberDto>;
 export type Invitation = z.infer<typeof InvitationDto>;
@@ -431,3 +510,10 @@ export type AnalyticsChildRow = z.infer<typeof ChildRowDto>;
 export type Health = z.infer<typeof HealthDto>;
 export type AuditEntity = z.infer<typeof AuditEntityDto>;
 export type AuditCatalog = z.infer<typeof AuditCatalogDto>;
+export type AiAnswer = z.infer<typeof AiAnswerDto>;
+export type AiMessage = z.infer<typeof AiMessageDto>;
+export type AiTurn = z.infer<typeof AiTurnDto>;
+export type AiConversation = z.infer<typeof AiConversationDto>;
+export type AiConversationDetail = z.infer<typeof AiConversationDetailDto>;
+export type AiStatus = z.infer<typeof AiStatusDto>;
+export type AiTrace = z.infer<typeof AiTraceDto>;

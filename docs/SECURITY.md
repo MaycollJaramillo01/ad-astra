@@ -61,7 +61,7 @@
 | Ver datos | Todos | Todos | Clientes asignados | Clientes asignados | Clientes asignados |
 | Configurar reglas, objetivos KPI y umbrales | ✓ | ✓ | Sus clientes | – | – |
 | Reconocer, posponer y descartar hallazgos y alertas | ✓ | ✓ | ✓ | ✓ | – |
-| Usar el copiloto IA (F4) | ✓ | ✓ | ✓ | ✓ | Configurable |
+| Usar el copiloto IA (F4) y proponer sus recomendaciones a la cola | ✓ | ✓ | ✓ | ✓ | – |
 | Subir documentos (F4) | ✓ | ✓ | ✓ | ✓ | – |
 | Aprobar documentos para la IA (F4) | ✓ | ✓ | ✓ | – | – |
 | Proponer acciones (F5) | ✓ | ✓ | ✓ | ✓ | – |
@@ -112,6 +112,7 @@ Eventos mínimos: inicio y cierre de sesión, fallos de login, cambios de rol, a
 - Sin `read_insights` activo, sus cuentas no se sincronizan; sin `ai_processing`, la IA no accede a sus datos; sin el alcance de escritura correspondiente, no se pueden crear propuestas para ellas.
 - La revocación detiene la sincronización de inmediato y programa la purga (§5).
 - Implementado (F1): activar la sincronización de una cuenta exige un cliente con `read_insights` activo, y cada trabajo de la cuenta lo vuelve a comprobar antes de llamar a Meta; revocado, lo pendiente termina sin llamadas. La purga llega con la retención (§5).
+- Implementado (F4): cada consulta de la IA comprueba `ai_processing` del cliente en su propia transacción; las cuentas sin cliente o sin ese alcance no llegan al modelo (la cartera las excluye y lo dice) y proponer una recomendación lo vuelve a comprobar.
 - El permiso técnico (scopes del token y `user_tasks`) y el consentimiento contractual se comprueban **ambos** antes de actuar.
 
 ### 4.8 Seguridad de la IA (OWASP Top 10 para LLM, 2025)
@@ -199,6 +200,7 @@ Meta es una fuente secundaria para los hechos de los últimos 37 meses (se puede
 | F3 | Notificaciones sin datos sensibles; DPA del proveedor de email; simulacro de restauración |
 | F3 · estado 2026-10-24 | ✅ RLS en `health_scores` y `audit_configs`; `finding_events` de solo inserción · ✅ permisos `audit:run` y `audit:configure` con alcance por cliente · ⏳ notificaciones y email (TD-21) · ⏳ simulacro de restauración |
 | F4 | DPA del proveedor LLM; minimización verificada; inventario de herramientas de solo lectura (test); suite de inyección; verificador de cifras; presupuestos y límites; documentos solo `approved` |
+| F4 · estado 2026-10-24 | ✅ inventario de solo lectura y cierre de importaciones sin `meta` ni `optimization` (tests) · ✅ herramientas con RBAC, RLS, alcance por cliente y `ai_processing` · ✅ textos de terceros limpiados y retirados si parecen instrucciones; operador en mensajes de sistema intermedios (tests) · ✅ verificador de cifras y lenguaje (evals deterministas) · ✅ presupuestos por organización, usuario y pregunta con `llm_usage` de solo inserción y bloqueo registrado; límite de preguntas por minuto · ✅ conversaciones privadas por RLS · ✅ salida pintada como texto, sin HTML ni enlaces · ✅ canario: ninguna credencial de Meta en lo enviado al modelo · ⏳ DPA y retención con el proveedor · ⏳ evaluación en vivo de inyección (TD-29) · ⏳ documentos `approved` (TD-24) |
 | F5 | Doble verificación de permisos (token + `user_tasks` + consentimiento); separación de funciones; reautenticación al aprobar; kill switch probado; idempotencia; webhooks firmados; pruebas de escritura solo en sandbox |
 | F6 | Los modelos no exponen datos de otros tenants (entrenamiento y ajuste por tenant) |
 | F7 | KMS con claves por tenant; SSO; prueba de penetración externa; reparto de cuotas; hashes encadenados en el registro de auditoría |

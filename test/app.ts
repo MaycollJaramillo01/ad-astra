@@ -1,6 +1,7 @@
 import { Writable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.ts';
+import type { LlmProvider } from '../src/modules/ai/provider.ts';
 import type { Identity } from '../src/platform/auth.ts';
 import { type Config, loadConfig } from '../src/platform/config.ts';
 import { createLogger } from '../src/platform/logging.ts';
@@ -12,7 +13,9 @@ import { testDb } from './seed.ts';
 
 export const config = loadConfig();
 
-export async function testApp(opts: { realAuth?: boolean; config?: Partial<Config> } = {}) {
+export async function testApp(
+  opts: { realAuth?: boolean; config?: Partial<Config>; llm?: LlmProvider } = {},
+) {
   let logs = '';
   const sink = new Writable({
     write(chunk, _enc, done) {
@@ -25,6 +28,8 @@ export async function testApp(opts: { realAuth?: boolean; config?: Partial<Confi
     config: { ...config, ...opts.config },
     db: testDb(),
     logger: createLogger(sink, 'info'),
+    // Nunca el proveedor real: sin `llm`, la IA queda desactivada (ni red ni gasto en los tests).
+    llm: opts.llm ?? null,
     ...(!opts.realAuth && {
       authenticate: async (request) => users.get(String(request.headers['x-test-user'])) ?? null,
     }),
