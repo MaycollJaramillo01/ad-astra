@@ -307,6 +307,10 @@ function ActionCard({
   });
   const run = (op: string, body: unknown) => command.mutate({ op, body });
   const actionable = ['proposed', 'review', 'failed'].includes(a.state) && !a.dispatchAt;
+  // ponytail: heurística de UI (lease de la cola); el servidor exige que no haya trabajo activo.
+  const stalled =
+    ['executing', 'verifying'].includes(a.state) &&
+    Date.now() - Date.parse(a.updatedAt) > 15 * 60_000;
   return (
     <article className={`${box} space-y-3`}>
       <header className="flex flex-wrap items-center gap-2">
@@ -425,7 +429,8 @@ function ActionCard({
         <p className="text-sm text-gray-500">Otra persona autorizada debe aprobar tu propuesta.</p>
       )}
       {((a.state === 'review' && eligible) ||
-        (canApprove && ['proposed', 'review', 'approved', 'failed'].includes(a.state)) ||
+        (canApprove &&
+          (stalled || ['proposed', 'review', 'approved', 'failed'].includes(a.state))) ||
         (canPropose && a.state === 'closed' && a.result === 'verified' && a.confirmedWrite)) && (
         <form
           className="space-y-2"
@@ -502,7 +507,7 @@ function ActionCard({
                 Cerrar con motivo
               </button>
             )}
-            {canApprove && a.state === 'failed' && a.dispatchAt && (
+            {canApprove && (a.state === 'failed' || stalled) && a.dispatchAt && (
               <button
                 type="button"
                 className={button}

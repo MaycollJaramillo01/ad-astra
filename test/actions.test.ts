@@ -415,6 +415,25 @@ describe('Action Center: contratos, aprobación y ejecución real contra Graph s
     expect(y.meta.writes).toHaveLength(0);
     expect((await y.get(q.id)).result).toBe('verified');
   });
+  it('un trabajo agotado tras el marcador no deja la acción sin salida: se reconcilia por lectura', async () => {
+    const x = await setup(),
+      p = await x.ready();
+    await x.approve(p);
+    await withContext(db, { tenantId: x.a.tenantId }, (tx) =>
+      tx
+        .update(s.actions)
+        .set({ state: 'executing', dispatchAt: new Date() })
+        .where(eq(s.actions.id, p.id)),
+    );
+    const reconcile = () => x.t.as(x.admin, x.a.tenantId).post(`/v1/actions/${p.id}/reconcile`, {});
+    expect((await reconcile()).statusCode).toBe(409); // aún hay un trabajo que la relee
+    await db.update(s.jobs).set({ status: 'failed' }).where(eq(s.jobs.tenantId, x.a.tenantId));
+    x.meta.state.objects.get(x.a.campaign.metaId)!.status = 'PAUSED';
+    expect((await reconcile()).statusCode).toBe(200);
+    await x.tick();
+    expect(x.meta.writes).toHaveLength(0);
+    expect(await x.get(p.id)).toMatchObject({ state: 'closed', result: 'verified' });
+  });
   it('rollback crea una nueva propuesta; requiere aprobación y bloquea deriva posterior', async () => {
     const x = await setup(),
       p = await x.ready();

@@ -33,6 +33,7 @@ stateDiagram-v2
   verifying --> closed: configuración verificada
   failed --> review: nueva revisión, solo si no hay envío ambiguo
   failed --> verifying: reconciliación solicitada, solo lectura
+  executing --> verifying: reconciliación solicitada si su trabajo se agotó
   proposed --> closed: cancelar con motivo
   review --> closed: cancelar con motivo
   approved --> closed: cancelar antes del envío
@@ -93,6 +94,8 @@ Una respuesta `success=true` no basta: se relee Meta. Coincidir en el campo conf
 
 Si no coincide o no se puede leer, se reprograman lecturas cada 30 segundos, hasta seis comprobaciones. Después queda `failed/unknown`, sin nuevo POST. Un usuario autorizado puede pedir reconciliación por lectura. Esto funciona con el kill switch activo; exige consentimiento de lectura y una conexión con acceso de lectura vigente. Si se revoca todo el acceso, la acción queda sin confirmar hasta recuperarlo o cerrar explícitamente reconociendo la incertidumbre.
 
+Si el trabajo de la cola agota sus cinco intentos tras el marcador (p. ej. la BD falla de forma repetida), la acción quedaría en `executing`/`verifying` sin nadie que la relea y sin poder cerrarse. Por eso la reconciliación también se acepta en esos estados cuando no queda ningún trabajo `action_execute` en cola o en curso para la acción; con un trabajo activo responde 409. La interfaz ofrece el botón tras 15 minutos sin cambios (el lease de la cola) y el servidor aplica la regla exacta.
+
 La bitácora guarda propuesta, revisión, aprobaciones, reserva, respuesta/ambigüedad, lecturas, bloqueo y cierre. No almacena tokens ni respuestas crudas de errores Graph. Cada evento de acción también se refleja en `audit_log`.
 
 ## 7. Rollback y efectos no reversibles
@@ -122,7 +125,7 @@ El tick HTTP y `pnpm dev:worker` incorporan `action_execute`; no hace falta otra
 
 ## 9. Validación y límites pendientes
 
-Pruebas nuevas: `src/modules/optimization/model.test.ts` (5) y `test/actions.test.ts` (14), con `test/fake-actions.ts` como Graph local inyectado. Cubren recorrido completo, importes absolutos, dos aprobadores, idempotencia, huellas jsonb, caducidad, versiones de política, kill switches, consentimiento/roles/scopes revocados, drift, límites, timeout aplicado/no aplicado, 613, concurrencia, recuperación de marcador, rollback completo y aislamiento entre tenants/clientes. La suite existente prueba RLS y arquitectura, incluida la frontera que impide a la IA llegar al ejecutor.
+Pruebas nuevas: `src/modules/optimization/model.test.ts` (5) y `test/actions.test.ts` (15), con `test/fake-actions.ts` como Graph local inyectado. Cubren recorrido completo, importes absolutos, dos aprobadores, idempotencia, huellas jsonb, caducidad, versiones de política, kill switches, consentimiento/roles/scopes revocados, drift, límites, timeout aplicado/no aplicado, 613, concurrencia, recuperación de marcador y de trabajo agotado, rollback completo y aislamiento entre tenants/clientes. La suite existente prueba RLS y arquitectura, incluida la frontera que impide a la IA llegar al ejecutor.
 
 Validación visual con respuestas sintéticas de la API: diff de presupuesto, bloqueo del botón sin autorización explícita, envío del hash/revisión correctos, primera aprobación 1/2, bitácora y políticas en escritorio y móvil. No sustituye una prueba de sesión Google ni de sandbox.
 

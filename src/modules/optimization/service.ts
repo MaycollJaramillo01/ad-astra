@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, gte, isNull, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { z } from 'zod';
 import {
   type ActionCreateBody,
@@ -21,6 +21,7 @@ import {
   campaigns,
   clientConsents,
   clients,
+  jobs,
   memberships,
   metaConnections,
   recommendations,
@@ -544,8 +545,23 @@ export function createActionService(deps: ActionDeps) {
     async reconcile(ctx: TenantContext, id: string) {
       return withContext(db, ctx, async (tx) => {
         const a = await rowFor(tx, ctx, id, true);
-        if (a.state !== 'failed' || !a.dispatchAt)
-          throw conflict('Solo se reconcilian envíos pendientes de verificar.');
+        // Si el trabajo agotó sus intentos (p. ej. BD caída tras el marcador), nadie relee la
+        // acción y no se puede cerrar en ejecución/verificación: se permite pedir otra lectura.
+        const [active] = await tx
+          .select({ id: jobs.id })
+          .from(jobs)
+          .where(
+            and(
+              eq(jobs.tenantId, a.tenantId),
+              eq(jobs.kind, 'action_execute'),
+              inArray(jobs.status, ['queued', 'running']),
+              sql`${jobs.payload}->>'actionId' = ${a.id}`,
+            ),
+          )
+          .limit(1);
+        const stalled = ['executing', 'verifying'].includes(a.state) && !active;
+        if (!a.dispatchAt || !(a.state === 'failed' || stalled))
+          throw conflict('Solo se reconcilian envíos pendientes de verificar sin trabajo activo.');
         const after = await updateAction(tx, a, { state: 'verifying', verificationAttempts: 0 });
         await enqueue(tx, {
           tenantId: a.tenantId,
