@@ -493,6 +493,179 @@ export const AiProposeParams = AiMessageParams.extend({
   index: z.coerce.number().int().min(0).max(5),
 });
 
+// --- Pronóstico y simulación (F6). Solo lectura: se calculan al pedirlos desde insights_daily.
+
+const MetaOrUuid = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
+const ExcludedRange = z
+  .object({ since: day, until: day, label: z.string().trim().min(1).max(80) })
+  .refine((r) => r.since <= r.until, { message: 'since debe ser anterior o igual a until' });
+const ForecastStatus = z.enum(['published', 'not_published', 'insufficient_data', 'paused']);
+const Band = z.object({ point: z.number(), lower: z.number(), upper: z.number() });
+const Quantiles = z.object({ p10: z.number(), p50: z.number(), p90: z.number() });
+
+export const ForecastBody = z.object({
+  level: z.enum(['account', 'campaign']),
+  id: MetaOrUuid,
+  horizonDays: z.number().int().min(7).max(56).default(28),
+  /** Último día observado (por defecto, ayer en la zona horaria de la cuenta). */
+  asOf: day.optional(),
+  /** Eventos externos (promociones, caídas, festivos): sus días no se ajustan ni se puntúan. */
+  exclude: z.array(ExcludedRange).max(20).default([]),
+});
+const ModelScoreDto = z.object({
+  model: z.string(),
+  label: z.string(),
+  mae: z.number().nullable(),
+  mase: num,
+  relMae: num,
+  wapeTotal: num,
+  biasTotal: num,
+});
+const ForecastMetricDto = z.object({
+  id: z.string(),
+  label: z.string(),
+  unit: z.enum(['currency', 'count']),
+  conversion: z.boolean(),
+  status: ForecastStatus,
+  reasons: z.array(z.string()),
+  usableDays: z.number().int(),
+  requiredDays: z.number().int(),
+  recentDailyMean: z.number(),
+  anomalies: z.array(day),
+  backtest: z
+    .object({
+      origins: z.number().int(),
+      chosen: z.string().nullable(),
+      chosenLabel: z.string().nullable(),
+      method: z.string().nullable(),
+      scores: z.array(ModelScoreDto),
+      calibration: z
+        .object({ evaluated: z.number().int(), dailyCoverage: num, totalCoverage: num })
+        .nullable(),
+    })
+    .nullable(),
+  history: z.array(z.object({ date: day, value: num, immature: z.boolean() })),
+  forecast: z.array(Band.extend({ date: day })).nullable(),
+  total: Band.nullable(),
+});
+const ForecastRatioDto = z.object({
+  id: z.string(),
+  label: z.string(),
+  status: ForecastStatus,
+  reasons: z.array(z.string()),
+  evaluated: z.number().int(),
+  coverage: num,
+  total: Band.nullable(),
+});
+export const ForecastDto = z.object({
+  version: z.string(),
+  node: z.object({
+    level: z.enum(['account', 'campaign']),
+    id: z.string(),
+    name: z.string(),
+    accountId: z.uuid(),
+    currency: z.string(),
+    timezone: z.string(),
+  }),
+  asOf: day,
+  /** Último día que entra en el ajuste: asOf menos los días de maduración. */
+  cut: day,
+  horizonDays: z.number().int(),
+  gapDays: z.number().int(),
+  start: day.nullable(),
+  usableDays: z.number().int(),
+  requiredDays: z.number().int(),
+  breaks: z.array(z.object({ date: day, reason: z.enum(['attribution', 'pause']) })),
+  excluded: z.array(ExcludedRange),
+  criteria: z.record(z.string(), z.unknown()),
+  metrics: z.array(ForecastMetricDto),
+  ratios: z.array(ForecastRatioDto),
+  assumptions: z.array(z.string()),
+  limitations: z.array(z.string()),
+  inputHash: z.string(),
+});
+
+export const SimulationBody = z.object({
+  adAccountId: z.uuid(),
+  horizonDays: z.number().int().min(7).max(91).default(28),
+  asOf: day.optional(),
+  exclude: z.array(ExcludedRange).max(20).default([]),
+  /** Gasto diario planificado por campaña; las demás mantienen el gasto actual. */
+  changes: z
+    .array(
+      z.object({
+        campaignId: z.string().regex(/^\d{1,30}$/),
+        dailySpend: z.number().min(0).max(1e9),
+      }),
+    )
+    .max(500)
+    .default([]),
+  seed: z.number().int().min(0).max(2_147_483_647).default(1),
+});
+const CostQuantiles = z.object({ p10: num, p50: num, p90: num });
+const SimulationCampaignDto = z.object({
+  id: z.string(),
+  name: z.string(),
+  effectiveStatus: z.string().nullable(),
+  profile: z.string(),
+  profileLabel: z.string(),
+  kpi: z.object({ field: z.string(), label: z.string(), costLabel: z.string() }),
+  currentDailySpend: z.number(),
+  plannedDailySpend: z.number(),
+  status: z.enum(['published', 'not_published', 'insufficient_data']),
+  reasons: z.array(z.string()),
+  curve: z
+    .object({
+      weeks: z.number().int(),
+      events: z.number(),
+      elasticity: Band,
+      learned: z.number(),
+      phi: z.number(),
+      spendRange: z.tuple([z.number(), z.number()]),
+    })
+    .nullable(),
+  validation: z.object({ evaluated: z.number().int(), coverage: num, relMae: num }).nullable(),
+  outcome: z
+    .object({
+      spend: z.number(),
+      events: Quantiles,
+      cost: CostQuantiles,
+      probNoEvents: z.number(),
+      expectedChange: Quantiles,
+      extrapolation: z.boolean(),
+      largeChange: z.boolean(),
+    })
+    .nullable(),
+});
+export const SimulationDto = z.object({
+  version: z.string(),
+  account: z.object({ id: z.uuid(), name: z.string(), currency: z.string(), timezone: z.string() }),
+  asOf: day,
+  cut: day,
+  horizonDays: z.number().int(),
+  seed: z.number().int(),
+  draws: z.number().int(),
+  campaigns: z.array(SimulationCampaignDto),
+  totals: z.array(
+    z.object({
+      field: z.string(),
+      label: z.string(),
+      costLabel: z.string(),
+      campaigns: z.number().int(),
+      spend: z.number(),
+      events: Quantiles,
+      cost: CostQuantiles,
+      probNoEvents: z.number(),
+      expectedChange: Quantiles,
+    }),
+  ),
+  spend: z.object({ current: z.number(), planned: z.number(), notSimulated: z.number() }),
+  prior: z.object({ mean: z.number(), sd: z.number() }),
+  assumptions: z.array(z.string()),
+  limitations: z.array(z.string()),
+  inputHash: z.string(),
+});
+
 export type Me = z.infer<typeof MeDto>;
 export type Member = z.infer<typeof MemberDto>;
 export type Invitation = z.infer<typeof InvitationDto>;
@@ -517,3 +690,7 @@ export type AiConversation = z.infer<typeof AiConversationDto>;
 export type AiConversationDetail = z.infer<typeof AiConversationDetailDto>;
 export type AiStatus = z.infer<typeof AiStatusDto>;
 export type AiTrace = z.infer<typeof AiTraceDto>;
+export type Forecast = z.infer<typeof ForecastDto>;
+export type ForecastMetric = z.infer<typeof ForecastMetricDto>;
+export type Simulation = z.infer<typeof SimulationDto>;
+export type SimulationCampaign = z.infer<typeof SimulationCampaignDto>;

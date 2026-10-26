@@ -219,14 +219,24 @@ export function DashboardPage({ role }: { role: Role }) {
         {r.node.objective && (
           <span className="text-sm text-gray-500">· {objectiveLabel(r.node.objective)}</span>
         )}
-        {role !== 'viewer' && (
-          <Link
-            className="ml-auto text-sm underline"
-            to={`/asistente?nivel=${r.node.level}${r.node.id ? `&id=${r.node.id}` : ''}`}
-          >
-            Preguntar a la IA sobre esta vista
-          </Link>
-        )}
+        <span className="ml-auto flex flex-wrap gap-x-4 text-sm">
+          {(r.node.level === 'account' || r.node.level === 'campaign') && r.node.id && (
+            <Link
+              className="underline"
+              to={`/prevision/${SLUG[r.node.level]}/${encodeURIComponent(r.node.id)}`}
+            >
+              Pronóstico y escenarios
+            </Link>
+          )}
+          {role !== 'viewer' && (
+            <Link
+              className="underline"
+              to={`/asistente?nivel=${r.node.level}${r.node.id ? `&id=${r.node.id}` : ''}`}
+            >
+              Preguntar a la IA sobre esta vista
+            </Link>
+          )}
+        </span>
       </header>
       <Toolbar report={r} sp={sp} set={set} />
       <div className={`space-y-5 transition-opacity ${stale ? 'opacity-60' : ''}`}>

@@ -577,7 +577,7 @@ create table audit_log (
 | F5 | `action_proposals` | Tipo, parámetros, snapshot actual, justificación, origen (`rule`, `ai`, `user`), impacto esperado, estado (máquina de estados de ARCHITECTURE §6.9), proponente, aprobadores, expiración |
 | F5 | `action_executions` | Intento, clave de idempotencia (única), petición y respuesta redactadas, verificación, `rollback_of` |
 | F5 | `kill_switches` | Interruptores global y por tenant, con autor y motivo |
-| F6 | `forecasts`, `forecast_backtests`, `simulations` | Modelo y versión, horizonte, puntos con intervalos, métricas de backtest, supuestos |
+| F6 | `forecasts`, `forecast_backtests`, `simulations` | Modelo y versión, horizonte, puntos con intervalos, métricas de backtest, supuestos. **Aplazadas (ADR-025):** pronósticos y escenarios se calculan al pedirlos desde `insights_daily`, con versión y huella de las entradas; se crean para guardar escenarios o medir el error real de lo publicado |
 
 ## 4. Aislamiento multi-tenant (RLS)
 

@@ -232,6 +232,10 @@ Plantilla de cada fase: (1) objetivo y alcance · (2) requisitos funcionales y n
 
 ### 4.7 F6 — Predicción, anomalías avanzadas y simulación
 
+> **Estado (2026-10-26): pronóstico, curvas de respuesta y simulador implementados y validados con datos sintéticos ([FORECASTING.md](FORECASTING.md)); con la historia real disponible (27 días) no se publica nada, como corresponde. Faltan la validación con ≥ 6 meses de datos reales, la curva de madurez de conversiones por cuenta, la evaluación antes y después de las acciones (depende de F5) y las anomalías por día de la semana y CUSUM.**
+> - ✅ Backtest de origen móvil con hueco de maduración; ingenuo estacional, perfil semanal y ETS(A,Ad,A) en TypeScript; intervalos empíricos conformes en el tiempo; costos derivados; criterios mínimos de datos, cortes por atribución y pausa, eventos externos y picos aislados; curva de respuesta bayesiana con validación de un paso; Monte Carlo con semilla; `POST /v1/forecasts` y `/v1/simulations`; vista `/prevision` con gráfico de abanico, fichas de modelo y simulador; `pnpm forecast:experiments` (ADR-025).
+> - Criterios: CA-F6-01 (MAE relativo < 1, lectura estricta) y CA-F6-02 (cobertura diaria en [70 %, 90 %]) aplicados como condición de publicación y comprobados con tests y en los experimentos E1; CA-F6-03 en la API y la vista (supuestos, intervalo, marcas de extrapolación y cambio grande, "estimación, no garantía"); CA-F6-04 con tests de recuperación de la elasticidad y de los muestreadores.
+
 1. **Objetivo y alcance.** Estimaciones probabilísticas, pronósticos y escenarios presupuestarios con validación retrospectiva; detección de anomalías estadística que refine las reglas de F3.
 2. **Requisitos.** FR: técnicas de [ARCHITECTURE §6.10](ARCHITECTURE.md#610-predicción-y-simulación-f6) con su condición de publicación; curva de madurez de conversiones por cuenta; evaluación antes y después de las acciones; fichas de modelo. NFR: ningún modelo visible sin superar su baseline; intervalos calibrados.
 3. **Arquitectura afectada.** Módulo `forecasting` (TS); worker opcional de Python solo si lo decide el spike de ADR-018.
@@ -240,7 +244,7 @@ Plantilla de cada fase: (1) objetivo y alcance · (2) requisitos funcionales y n
 6. **Pruebas.** Backtesting; recuperación de parámetros con datos sintéticos; calibración (cobertura empírica de los intervalos del 80 % entre el 70 y el 90 %); inyección sintética de anomalías (precisión y recall).
 7. **Riesgos.** RSK-10 (no estacionariedad, confusión con el algoritmo de entrega de Meta, pocos datos); exceso de confianza de los usuarios.
 8. **Criterios de aceptación.**
-   - CA-F6-01: ningún pronóstico se muestra para una serie en la que no supera al baseline ingenuo estacional (MASE < 1) en el backtest.
+   - CA-F6-01: ningún pronóstico se muestra para una serie en la que no supera al baseline ingenuo estacional (MASE < 1) en el backtest. *Implementado como MAE relativo al ingenuo en los mismos puntos < 1 (ADR-025).*
    - CA-F6-02: cobertura empírica de los intervalos del 80 % dentro de [70 %, 90 %].
    - CA-F6-03: cada escenario muestra supuestos, intervalo, rango de extrapolación y la leyenda "estimación, no garantía".
    - CA-F6-04: los tests de recuperación de parámetros pasan con datos sintéticos.

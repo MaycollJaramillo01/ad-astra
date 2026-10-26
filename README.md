@@ -57,6 +57,12 @@ pnpm dev:worker
 pnpm ai:eval -- --tenant <uuid> --user <uuid>
 ```
 
+**Previsión y escenarios.** La vista `/prevision` pronostica gasto, resultados y costos "si nada cambia" y simula cambios de presupuesto por campaña, siempre como rangos del 80 % validados con datos pasados. Con menos de ~6,5 meses de historia no publica nada y dice cuánto falta. Matemáticas, criterios y experimentos en [docs/FORECASTING.md](docs/FORECASTING.md); los experimentos (datos sintéticos, sin red) se repiten con:
+
+```bash
+pnpm forecast:experiments
+```
+
 ## Comprobaciones (las mismas que la CI)
 
 ```bash
@@ -93,6 +99,7 @@ src/modules/tenancy/       organizaciones, miembros, invitaciones, clientes y co
 src/modules/meta/          conexiones (token cifrado) y cliente de Graph API v26
 src/modules/catalog/       cuentas publicitarias y campañas
 src/modules/audit/         hallazgos, recomendaciones y registro de eventos
+src/modules/forecasting/   pronóstico con backtest, curvas de respuesta y Monte Carlo
 migrations/                SQL generado y revisado (0001_rls.sql: aislamiento)
 web/                       SPA (React + Vite + TanStack Query)
 test/                      integración y seguridad contra Postgres real

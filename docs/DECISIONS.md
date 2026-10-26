@@ -23,11 +23,14 @@ El responsable aprobó el plan maestro el **2026-10-23**: las decisiones pasan a
 | 015 | Servidor MCP y CLI oficiales de Meta fuera del núcleo | Aceptada |
 | 016 | Frontend SPA con React + Vite | Aceptada |
 | 017 | Contrato REST `/v1` con OpenAPI 3.1 generado desde zod | Aceptada |
-| 018 | Estadística simple y explicable en TypeScript | Aceptada |
+| 018 | Estadística simple y explicable en TypeScript | Aceptada (revisada el 2026-10-26: ETS en TS, ADR-025) |
 | 019 | Autenticación del personal con Better Auth y Google Workspace | Aceptada (revisada el 2026-10-23, PQ-05) |
 | 020 | No agregar monedas distintas sin conversión explícita | Aceptada |
 | 021 | Estados de dato explícitos | Aceptada |
 | 022 | Despliegue en Vercel Pro + Neon; trabajo en segundo plano con un tick programado | Aceptada (PQ-04) |
+| 023 | Motor de auditoría: función pura, cinco subíndices y una sola configuración | Aceptada |
+| 024 | Asistente de IA: respuesta estructurada verificable, herramientas de lectura y presupuestos por configuración | Aceptada |
+| 025 | Pronóstico y simulación: modelos simples validados, calculados al pedirlos | Aceptada |
 
 ---
 
@@ -219,6 +222,7 @@ El responsable aprobó el plan maestro el **2026-10-23**: las decisiones pasan a
 - **Alternativas:** servicio de Python desde el inicio; librerías de estadística en JS (se valoran caso a caso; ninguna cubre todo).
 - **Consecuencias:** métodos transparentes y fáciles de explicar en la UI; pocos modelos sofisticados al principio, por diseño.
 - **Revisar si:** F6 requiere modelos de espacio de estados, jerárquicos o de supervivencia avanzados.
+- **Revisión 2026-10-26 (F6):** spike de ETS resuelto en TypeScript: ETS(A,Ad,A) con rejilla de 140 combinaciones, ≈ 20 ms por serie con su backtest; no hace falta un worker de Python ([FORECASTING §3](FORECASTING.md#3-técnicas-evaluadas)). Ver ADR-025.
 
 ## ADR-019 — Autenticación del personal con Better Auth y Google Workspace
 
@@ -274,3 +278,15 @@ El responsable aprobó el plan maestro el **2026-10-23**: las decisiones pasan a
 - **Consecuencias:** un modelo que calcula cifras propias (diferencias, medias) ve su respuesta rechazada: las herramientas devuelven ya las variaciones; los enteros pequeños sin unidad se aceptan como conteos; cambiar el prompt de sistema o las herramientas sube `PROMPT_VERSION` y las conversaciones viejas descartan bloques de pensamiento antiguos (`drop_block`); con dos peticiones simultáneas un usuario puede pasarse ligeramente del presupuesto (sin reserva con bloqueo, TD-28).
 - **Revisar si:** las evaluaciones en vivo muestran muchas respuestas correctas rechazadas por el verificador, si se abre a varias agencias (presupuestos por tenant) o si hace falta streaming para la experiencia de uso.
 
+## ADR-025 — Pronóstico y simulación: modelos simples validados, calculados al pedirlos
+
+- **Contexto:** F6 pide pronósticos y escenarios de presupuesto con validación retrospectiva, intervalos calibrados y sin afirmar causalidad (ARCHITECTURE §6.10, CA-F6-01 a 04). La historia real disponible hoy es de 27 días de una cuenta; la mayoría de las cuentas tendrán meses, no años.
+- **Decisión:**
+  1. **Pronóstico:** dos candidatos (perfil semanal y ETS(A,Ad,A)) frente al ingenuo estacional en un backtest de origen móvil semanal con el hueco de maduración de conversiones. Se publica solo si el MAE relativo al ingenuo, en los mismos puntos, es < 1 (lectura estricta de CA-F6-01; el MASE se informa) y la cobertura diaria del intervalo del 80 % está en [70 %, 90 %] (CA-F6-02).
+  2. **Intervalos empíricos conformes en el tiempo:** cuantiles de errores normalizados de orígenes ya observados, con la corrección de muestra finita (m + 1)/m. Para coberturas medidas con pocas evaluaciones (costos derivados, curvas), el rango [70 %, 90 %] se amplía un error típico binomial.
+  3. **Escenarios:** curva de respuesta semanal por campaña, Poisson sobredispersa log-lineal con a priori débil N(0,7; 0,25²) sobre la elasticidad y aproximación de Laplace; validación de un paso con PIT aleatorizado; Monte Carlo con 10.000 extracciones y semilla. Marcas de extrapolación (fuera del rango semanal observado) y de cambio grande (> ±30 %).
+  4. **Sin persistencia:** se calcula al pedirlo (`POST /v1/forecasts` y `/v1/simulations`, de solo lectura) con versión del motor y huella de las entradas.
+  5. **Markov, Kaplan-Meier, ARIMA, Prophet y modelos jerárquicos, fuera:** no se cumplen sus criterios de datos o no mejoran lo necesario (FORECASTING §3).
+- **Alternativas:** intervalos analíticos de ETS (suponen normalidad y subestiman la incertidumbre de parámetros); regresión log-log por mínimos cuadrados (sin a priori, b no se identifica cuando el gasto varía poco, y los logaritmos no admiten semanas con 0 eventos); costo por evento constante (supone retornos lineales, el defecto que se señaló en fortytwode, ADR-014); el margen de ±50 % sobre el rango observado para la extrapolación (los experimentos mostraron cobertura real del 50–67 % con +100 % sin que saltara la marca); tablas `forecasts`/`simulations` (nada las necesita aún).
+- **Consecuencias:** con la historia actual no se publica ningún pronóstico ni escenario y la interfaz dice cuántos días faltan (199 para 28 días de horizonte; 18 semanas por campaña para un escenario). Tras un cambio de régimen la serie deja de publicarse hasta recalibrarse. Los escenarios lejos del gasto observado quedan marcados, porque la validación de un paso no puede detectar una forma de curva equivocada (FORECASTING §8, E4).
+- **Revisar si:** los pronósticos con datos reales no superan al ingenuo, la cobertura real (pronósticos guardados frente a lo ocurrido) se aleja del 80 %, hay campañas con 1–2 años de historia (festivos) o se dispone de experimentos de incrementalidad para estimar efectos causales.

@@ -93,10 +93,11 @@ src/
                              presupuestos (assistant.ts) y API (routes.ts)
                           ⏳ documentos aprobados, reportes en lote, streaming (TD-24, TD-26)
     optimization/         ⏳ F5
-    forecasting/          ⏳ F6
+    forecasting/          ✅ pronóstico con backtest y calibración (forecast.ts), curvas de respuesta
+                             y Monte Carlo (simulate.ts) y API de solo lectura (routes.ts)
 web/src/                  ✅ SPA: login con Google, organización activa, clientes, cuentas, conexiones,
-                             analítica (dashboard.tsx, chart.tsx), auditoría (audit.tsx) y
-                             asistente de IA (assistant.tsx)
+                             analítica (dashboard.tsx, chart.tsx), auditoría (audit.tsx),
+                             asistente de IA (assistant.tsx) y previsión y escenarios (forecast.tsx)
 migrations/               ✅ SQL generado y revisado; 0001_rls.sql y 0003_sync_rls.sql con el aislamiento
 scripts/worker.ts         ✅ tick en local (pnpm dev:worker)
 test/                     ✅ integración y seguridad contra Postgres real
@@ -432,6 +433,14 @@ stateDiagram-v2
 
 Toda predicción se publica con su ficha (datos, supuestos, métricas de backtest, limitaciones) y nunca como resultado garantizado. Las correlaciones no se presentan como causas.
 
+**Implementado (2026-10-26)** en `src/modules/forecasting/` (`forecast.ts`, `simulate.ts`, `routes.ts`); matemáticas, criterios y experimentos en [FORECASTING.md](FORECASTING.md); decisión en ADR-025. Cambios respecto a la tabla anterior, por la evidencia de los experimentos:
+
+- **Publicación de un pronóstico:** MAE relativo al ingenuo estacional < 1 en los mismos puntos del backtest (el MASE se informa: a 28 días puede pasar de 1 aunque el modelo supere al ingenuo) y cobertura diaria del intervalo del 80 % en [70 %, 90 %]. Candidatos: perfil semanal y ETS(A,Ad,A) en TypeScript (sin worker de Python).
+- **Intervalos:** empíricos y conformes en el tiempo (errores de orígenes ya observados, corrección de muestra finita), no analíticos.
+- **Curva de respuesta:** Poisson sobredispersa log-lineal con a priori débil sobre la elasticidad (aproximación de Laplace), validada con una predicción de un paso. Extrapolación = fuera del rango semanal observado (el margen de ±50 % resultó demasiado permisivo) y marca de cambio grande por encima de ±30 %.
+- **Monte Carlo:** extracciones del a posteriori + ruido Gamma-Poisson (binomial negativa), con semilla.
+- **Pendiente:** CUSUM y anomalías por día de la semana (la z robusta solo acota picos aislados para ajustar); Markov y Kaplan-Meier no aplican mientras no se cumplan sus criterios de datos.
+
 ## 7. Contrato de la API propia (v1)
 
 - REST bajo `/v1`, JSON, OpenAPI 3.1 generado desde los esquemas zod y publicado en `/v1/openapi.json`. Un test de la CI compara el contrato con el del commit anterior y avisa de cambios incompatibles.
@@ -464,7 +473,7 @@ Toda predicción se publica con su ficha (datos, supuestos, métricas de backtes
 | `/v1/notification-policies` | GET, PUT | F3 |
 | `/v1/ai/conversations`, `/v1/reports`, `/v1/documents` | GET, POST | F4 |
 | `/v1/actions`, `/v1/actions/{id}/approve`, `/reject`, `/revert` | GET, POST | F5 |
-| `/v1/forecasts`, `/v1/simulations` | GET, POST | F6 |
+| ✅ `/v1/forecasts`, `/v1/simulations` (de solo lectura; POST porque llevan cuerpo) | POST | F6 |
 | ✅ `/v1/audit-log` (paginado por cursor `before`) | GET | F1 |
 | `/v1/webhooks/meta` (público, con firma) | GET, POST | F5 |
 

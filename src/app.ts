@@ -16,6 +16,7 @@ import { aiRoutes } from './modules/ai/routes.ts';
 import { auditEngineRoutes } from './modules/audit/engine.routes.ts';
 import { auditRoutes } from './modules/audit/routes.ts';
 import { catalogRoutes } from './modules/catalog/routes.ts';
+import { forecastingRoutes } from './modules/forecasting/routes.ts';
 import { insightsRoutes } from './modules/insights/routes.ts';
 import { connectionRoutes } from './modules/meta/connections.routes.ts';
 import { tickRoutes } from './modules/meta/tick.routes.ts';
@@ -118,6 +119,7 @@ export async function buildApp({
   await app.register(auditRoutes, { db });
   await app.register(auditEngineRoutes, { db });
   await app.register(insightsRoutes, { db });
+  await app.register(forecastingRoutes, { db });
   await app.register(tickRoutes, { config, db, cipher });
   await app.register(aiRoutes, {
     db,

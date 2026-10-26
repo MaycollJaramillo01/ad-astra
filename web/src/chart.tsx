@@ -17,14 +17,14 @@ export interface ChartPoint {
 const H = 220;
 const M = { top: 16, right: 64, bottom: 28, left: 64 };
 
-function niceStep(max: number, ticks = 4): number {
+export function niceStep(max: number, ticks = 4): number {
   const raw = max / ticks;
   const mag = 10 ** Math.floor(Math.log10(raw));
   const norm = raw / mag;
   return (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10) * mag;
 }
 
-function useWidth<T extends HTMLElement>() {
+export function useWidth<T extends HTMLElement>() {
   const ref = useRef<T>(null);
   const [width, setWidth] = useState(640);
   useEffect(() => {
@@ -40,7 +40,7 @@ function useWidth<T extends HTMLElement>() {
 }
 
 /** Trazo con cortes donde falta el dato. */
-function linePath(
+export function linePath(
   values: Array<number | null>,
   x: (i: number) => number,
   y: (v: number) => number,
