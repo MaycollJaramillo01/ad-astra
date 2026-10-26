@@ -65,12 +65,12 @@
 | Subir documentos (F4) | ✓ | ✓ | ✓ | ✓ | – |
 | Aprobar documentos para la IA (F4) | ✓ | ✓ | ✓ | – | – |
 | Proponer acciones (F5) | ✓ | ✓ | ✓ | ✓ | – |
-| Aprobar acciones (F5) | ✓ | ✓ | Sus clientes, hasta el umbral | – | – |
+| Aprobar acciones (F5) | ✓ | ✓ | Solo estados de sus clientes; no presupuestos | – | – |
 | Kill switch de acciones (F5) | ✓ | ✓ | – | – | – |
 | Ver el registro de auditoría | ✓ | ✓ | – | – | – |
 
 - Un único servicio `authorize(user, permission, resource)` decide. Denegar por defecto. Cada endpoint declara su permiso y un test verifica que ninguno queda sin declarar.
-- Separación de funciones en F5: quien propone no puede aprobar su propia propuesta por encima del umbral de doble aprobación.
+- Separación de funciones en F5: nadie aprueba su propia propuesta. Activaciones y presupuestos desde el umbral requieren dos aprobadores distintos del proponente. Reglas, idempotencia, límites de reversión y protección de envíos ambiguos en [ACTION_CENTER.md](ACTION_CENTER.md).
 
 ### 4.3 Multi-tenancy verificable
 

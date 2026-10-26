@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { synthetic, UNTIL } from '../../../test/forecast-fixtures.ts';
 import { addDays } from '../insights/catalog.ts';
+import { calendarEvents, easter, eventLookup } from './calendar.ts';
 import {
   CRITERIA,
   coverageOk,
   type DailyRow,
   errorInterval,
+  estimateEffects,
   etsForecast,
   forecastRatio,
   forecastSeries,
@@ -13,6 +15,7 @@ import {
   prepareHistory,
   requiredDays,
   seasonalNaive,
+  seriesAt,
   seriesOf,
   weekdayProfile,
 } from './forecast.ts';
@@ -98,11 +101,19 @@ describe('historia utilizable', () => {
     expect(short.dates.length).toBe(100);
   });
 
-  it('los días excluidos no se ajustan; un pico aislado se acota y un cambio sostenido no', () => {
+  it('las incidencias no se ajustan; un pico aislado se acota y un cambio sostenido no', () => {
     const rows = daysBack(100, (t) => (t === 70 ? 500 : t >= 90 ? 150 : 50 + (t % 3)));
-    const h = prepareHistory(rows, UNTIL, [
-      { since: addDays(UNTIL, -5), until: addDays(UNTIL, -4), label: 'Promoción' },
-    ]);
+    const incident = {
+      since: addDays(UNTIL, -5),
+      until: addDays(UNTIL, -4),
+      label: 'Caída del píxel',
+      category: 'incident' as const,
+    };
+    const h = prepareHistory(
+      rows,
+      UNTIL,
+      calendarEvents(addDays(UNTIL, -99), UNTIL, [incident], false),
+    );
     const s = seriesOf(h, 'spend');
     expect(s.anomalies).toEqual([70]);
     expect(s.train[70]).toBeLessThan(100);
@@ -113,9 +124,102 @@ describe('historia utilizable', () => {
   });
 });
 
+describe('festivos, fechas comerciales y días de pago', () => {
+  const events = calendarEvents(addDays(UNTIL, -400), addDays(UNTIL, 60));
+  const at = eventLookup(events);
+  // Días de pago con un 50 % más de leads; el resto del calendario no tiene efecto real.
+  const rows = synthetic({
+    days: 300,
+    seed: 4,
+    spend: () => 300,
+    leads: { k: 0.2, b: 0.8 },
+    effect: (d) => (at(d)?.category === 'payday' ? 1.5 : 1),
+  });
+  const h = prepareHistory(rows, UNTIL, events);
+
+  it('calcula el calendario incorporado y da prioridad a los festivos', () => {
+    expect(easter(2026)).toBe('2026-04-05');
+    expect(easter(2027)).toBe('2027-03-28');
+    const nov = calendarEvents('2026-11-01', '2026-12-31');
+    expect(nov.find((e) => e.key === 'black-friday')).toMatchObject({
+      since: '2026-11-27',
+      until: '2026-11-29',
+    });
+    expect(nov.find((e) => e.key === 'cyber-monday')?.since).toBe('2026-11-30');
+    const winter = eventLookup(calendarEvents('2025-12-01', '2026-02-28'));
+    expect(winter('2026-01-01')?.key).toBe('fin-de-ano'); // también es día de pago: gana el festivo
+    expect(winter('2026-01-15')?.key).toBe('quincena');
+    expect(winter('2026-01-20')).toBeNull();
+    const own = calendarEvents(
+      '2025-01-01',
+      '2026-12-31',
+      [
+        {
+          since: '2025-10-01',
+          until: '2025-10-03',
+          label: 'Feriado morazánico',
+          category: 'holiday',
+          yearly: true,
+        },
+      ],
+      false,
+    );
+    expect(own.map((e) => e.since)).toEqual(['2025-10-01', '2026-10-01']);
+    expect(own[0]?.key).toBe('user:holiday:feriado-morazanico');
+  });
+
+  it('estima el efecto de los días de pago y deja amplio el de un evento sin historia', () => {
+    const s = seriesOf(h, 'leads');
+    const effects = estimateEffects(s, s.train.length);
+    const payday = effects(events.find((e) => e.key === 'quincena')!);
+    expect(payday.occurrences).toBeGreaterThan(15);
+    expect(Math.abs(payday.mean - Math.log(1.5))).toBeLessThan(0.1);
+    // Black Friday de 2025 cae fuera de los 300 días: solo el a priori de su categoría.
+    const blackFriday = effects(events.find((e) => e.key === 'black-friday')!);
+    expect(blackFriday.occurrences).toBe(0);
+    expect(blackFriday.sd).toBeGreaterThan(0.3);
+  });
+
+  it('pronostica los días de pago con su efecto y su incertidumbre', () => {
+    const f = forecastSeries(h, seriesOf(h, 'leads'), H, { count: true });
+    expect(f.status).toBe('published');
+    const points = f.points ?? [];
+    const paid = points.filter((p) => p.event === 'Días de pago (quincena)');
+    const normal = points.filter((p) => p.event === null);
+    expect(paid.length).toBeGreaterThan(1);
+    const mean = (xs: typeof points) => xs.reduce((s, p) => s + p.point, 0) / xs.length;
+    expect(mean(paid) / mean(normal)).toBeGreaterThan(1.3);
+    const width = (xs: typeof points) =>
+      xs.reduce((s, p) => s + (p.upper - p.lower) / p.point, 0) / xs.length;
+    expect(width(paid)).toBeGreaterThan(width(normal));
+    expect(f.backtest?.calibration?.eventDays).toBeGreaterThan(0);
+    expect(f.events.find((e) => e.key === 'quincena')?.occurrences).toBeGreaterThan(15);
+  });
+});
+
 describe('backtest, calibración y publicación', () => {
   const stable = (seed: number, days = 240) =>
     synthetic({ days, seed, spend: () => 300, leads: { k: 0.2, b: 0.8 } });
+
+  it('recalcula los picos dentro del corte sin confirmar con datos del holdout', () => {
+    const actual = Array.from({ length: 110 }, (_, t) => (t === 79 ? 500 : 50 + (t % 3)));
+    const s = { actual, event: actual.map(() => null) };
+    expect(seriesAt(s, 110).anomalies).toContain(79);
+    expect(seriesAt(s, 80).anomalies).not.toContain(79);
+    const changed = { ...s, actual: actual.map((x, i) => (i < 80 ? x : 10000)) };
+    expect(seriesAt(changed, 80)).toEqual(seriesAt(s, 80));
+  });
+
+  it('elige con orígenes anteriores y compara contra el baseline en el periodo posterior', () => {
+    const h = prepareHistory(stable(3), UNTIL);
+    const bt = forecastSeries(h, seriesOf(h, 'spend'), H, { count: false }).backtest!;
+    expect(bt.selectionOrigins).toBe(6);
+    expect(bt.evaluationOrigins).toBeGreaterThanOrEqual(6);
+    const best = bt.selectionScores
+      .filter((s) => s.model !== 'snaive')
+      .sort((a, b) => (a.relMae ?? Infinity) - (b.relMae ?? Infinity))[0];
+    expect(bt.chosen).toBe(best?.model);
+  });
 
   it('con pocas evaluaciones tolera un error típico binomial alrededor de [70 %, 90 %]', () => {
     expect(coverageOk(17 / 18, 18)).toBe(true);
@@ -195,6 +299,15 @@ describe('backtest, calibración y publicación', () => {
     const f = forecastSeries(h, seriesOf(h, 'leads'), H, { count: true });
     expect(f.status).toBe('insufficient_data');
     expect(f.reasons[0]).toContain('Volumen bajo');
+  });
+
+  it('no confunde muchos días excluidos con historia suficiente', () => {
+    const h = prepareHistory(stable(2), UNTIL);
+    h.excluded = h.dates.map((_, i) => i >= h.dates.length - 40);
+    const f = forecastSeries(h, seriesOf(h, 'spend'), H, { count: false });
+    expect(f.status).toBe('insufficient_data');
+    expect(f.reasons.join(' ')).toContain('Pocos días normales');
+    expect(f.points).toBeNull();
   });
 
   it('el costo por evento solo se publica con sus dos series publicadas', () => {

@@ -568,6 +568,8 @@ create table audit_log (
 
 ### 3.9 Tablas de fases posteriores (esbozo)
 
+> **F5 implementada (2026-10-26):** el esquema efectivo del Action Center usa `action_policies`, `actions`, `action_approvals` y `action_events`, migraciones 0011/0012. Incluye versiones de autorización en la configuración JSONB, snapshots/diffs, revisión optimista, marcador durable de envío, evidencia de verificación y bitácoras de solo inserción con RLS y referencias compuestas. El siguiente SQL conserva el esbozo inicial; la especificación vigente es [ACTION_CENTER.md](ACTION_CENTER.md).
+
 | Fase | Tabla | Propósito |
 |---|---|---|
 | F4 ✅ | `llm_usage` | Proveedor, modelo, versión de prompt, propósito, tokens (entrada, salida, caché), costo, latencia, estado; sin contenido (implementada, §0) |

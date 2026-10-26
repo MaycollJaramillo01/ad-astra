@@ -14,6 +14,7 @@ const real = {
       actions: [{ action_type: 'purchase', value: '7' }],
       thumbnail_url: 'https://scontent.example/img.jpg',
       objective: 'OUTCOME_SALES',
+      promoted_object: { page_id: '9876543210', whatsapp_phone_number: '+15550000123' },
     },
   ],
   paging: { next: 'https://graph.facebook.com/v26.0/act_1/x?access_token=EAAsecret' },
@@ -28,6 +29,7 @@ it('elimina nombres, URLs, paginación y credenciales, y mantiene la forma', () 
     '23851234567890',
     '9876543210',
     'paging',
+    '+15550000123',
   ]) {
     expect(out).not.toContain(leak);
   }

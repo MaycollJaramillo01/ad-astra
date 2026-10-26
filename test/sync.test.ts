@@ -176,6 +176,10 @@ async function setup(opts: { token?: string; act?: string; scopes?: string[] } =
       const [account] = await q((tx) =>
         tx.select().from(adAccounts).where(eq(adAccounts.metaAccountId, act)),
       );
+      if (!account && (opts.scopes ?? ['ads_read']).includes('ads_read'))
+        throw new Error(
+          `El tick no descubrió la cuenta sintética: ${JSON.stringify({ jobs: await s.jobs(), runs: await s.runs() })}`,
+        );
       s.accountId = account?.id ?? '';
       return account;
     },

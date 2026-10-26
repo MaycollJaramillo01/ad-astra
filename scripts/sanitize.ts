@@ -24,6 +24,7 @@ const DROP = new Set([
   'object_name',
   'actor_name',
   'application_name',
+  'whatsapp_phone_number',
 ]);
 const MONEY = new Set([
   'spend',

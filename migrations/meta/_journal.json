@@ -64,6 +64,34 @@
       "when": 1792881640742,
       "tag": "0008_ai_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793027556414,
+      "tag": "0009_forecasting",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793027557984,
+      "tag": "0010_forecasting_rls",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793048026942,
+      "tag": "0011_action_center",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793048092439,
+      "tag": "0012_action_center_rls",
+      "breakpoints": true
     }
   ]
 }

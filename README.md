@@ -57,7 +57,9 @@ pnpm dev:worker
 pnpm ai:eval -- --tenant <uuid> --user <uuid>
 ```
 
-**Previsión y escenarios.** La vista `/prevision` pronostica gasto, resultados y costos "si nada cambia" y simula cambios de presupuesto por campaña, siempre como rangos del 80 % validados con datos pasados. Con menos de ~6,5 meses de historia no publica nada y dice cuánto falta. Matemáticas, criterios y experimentos en [docs/FORECASTING.md](docs/FORECASTING.md); los experimentos (datos sintéticos, sin red) se repiten con:
+**Action Center.** `/acciones` permite aceptar recomendaciones, proponer pausas/activaciones y cambios de presupuesto, revisar el diff en vivo, aprobarlo y seguir su ejecución y reconciliación en la cola existente. Las escrituras quedan desactivadas con `META_WRITES_ENABLED=false` y requieren además reglas por cuenta, consentimiento, permisos en Meta y aprobación de otra persona (dos para activaciones o cambios presupuestarios desde el umbral). El rollback crea una nueva propuesta y bloquea configuraciones que hayan cambiado. Contratos, estados, operación y límites en [docs/ACTION_CENTER.md](docs/ACTION_CENTER.md). La implementación no ejecuta escrituras reales durante las pruebas.
+
+**Previsión y escenarios.** La vista `/prevision` pronostica gasto, resultados y costos "si nada cambia" y simula cambios de presupuesto por campaña con intervalos nominales del 80 %. Compara baselines con separación temporal y muestra errores, cobertura y supuestos. Permite configurar eventos externos y bloquea escenarios fuera del rango validado. La validación semanal de escenarios no certifica sus totales ni un efecto causal. El pronóstico de 28 días exige 199 días maduros; con historia insuficiente informa cuánto falta. Matemáticas y límites en [docs/FORECASTING.md](docs/FORECASTING.md) e informe completo en [docs/FORECAST_EXPERIMENTS_2026-10-26.md](docs/FORECAST_EXPERIMENTS_2026-10-26.md). Los experimentos (datos sintéticos, sin red) se repiten con:
 
 ```bash
 pnpm forecast:experiments

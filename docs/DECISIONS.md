@@ -31,6 +31,7 @@ El responsable aprobó el plan maestro el **2026-10-23**: las decisiones pasan a
 | 023 | Motor de auditoría: función pura, cinco subíndices y una sola configuración | Aceptada |
 | 024 | Asistente de IA: respuesta estructurada verificable, herramientas de lectura y presupuestos por configuración | Aceptada |
 | 025 | Pronóstico y simulación: modelos simples validados, calculados al pedirlos | Aceptada |
+| 026 | Action Center: aprobación explícita y reconciliación de envíos ambiguos | Implementada; pendiente de sandbox autorizado |
 
 ---
 
@@ -290,3 +291,12 @@ El responsable aprobó el plan maestro el **2026-10-23**: las decisiones pasan a
 - **Alternativas:** intervalos analíticos de ETS (suponen normalidad y subestiman la incertidumbre de parámetros); regresión log-log por mínimos cuadrados (sin a priori, b no se identifica cuando el gasto varía poco, y los logaritmos no admiten semanas con 0 eventos); costo por evento constante (supone retornos lineales, el defecto que se señaló en fortytwode, ADR-014); el margen de ±50 % sobre el rango observado para la extrapolación (los experimentos mostraron cobertura real del 50–67 % con +100 % sin que saltara la marca); tablas `forecasts`/`simulations` (nada las necesita aún).
 - **Consecuencias:** con la historia actual no se publica ningún pronóstico ni escenario y la interfaz dice cuántos días faltan (199 para 28 días de horizonte; 18 semanas por campaña para un escenario). Tras un cambio de régimen la serie deja de publicarse hasta recalibrarse. Los escenarios lejos del gasto observado quedan marcados, porque la validación de un paso no puede detectar una forma de curva equivocada (FORECASTING §8, E4).
 - **Revisar si:** los pronósticos con datos reales no superan al ingenuo, la cobertura real (pronósticos guardados frente a lo ocurrido) se aleja del 80 %, hay campañas con 1–2 años de historia (festivos) o se dispone de experimentos de incrementalidad para estimar efectos causales.
+- **Revisión científica 2026-10-26:** `forecast-1.2.0` separa seis orígenes iniciales de selección y la evaluación posterior, y rehace la limpieza dentro del corte. `simulate-2.0.0` controla curvatura, tendencia, eventos y gasto de pares, remuestrea choques conjuntos y bloquea planes fuera del soporte validado. Los intervalos son nominales y condicionales, con limitaciones empíricas visibles (E6 y E7). No se ha demostrado que ARIMA/Prophet rindan peor; se mantienen diferidos. Los efectos de eventos son jerárquicos aproximados; los diseños de experimentos sí se persisten (migraciones 0009/0010), sin cambiar presupuestos publicitarios. La especificación vigente y la evidencia completa están en [FORECASTING.md](FORECASTING.md).
+
+
+## ADR-026 — Action Center: aprobación explícita, asignaciones absolutas y reconciliación de envíos ambiguos
+
+- **Contexto:** ejecutar recomendaciones aceptadas exige evidencia de lo aprobado, permisos actuales y recuperación tras fallos de red sin duplicar cambios publicitarios.
+- **Decisión:** solo campos de estado y presupuesto permitidos, políticas versionadas por cuenta y bloqueo global por defecto; diffs en vivo con TTL, aprobación independiente (doble para activaciones/cambios desde umbral), cola Postgres y advisory lock de cuenta Meta. Confirmar un marcador durable antes del POST; si el resultado es ambiguo, solo releer. Cada transición se guarda en una bitácora de solo inserción. Rollback como propuesta inversa cuando la configuración siga coincidiendo con la verificada.
+- **Alternativas:** reintentar POST tras timeout (puede duplicar o pisar un cambio externo), aprobar recomendaciones como permiso de escritura implícito (no fija estado vivo ni diff), compensar automáticamente fallos con cambios inversos (puede deshacer trabajo ajeno), prometer exactly-once remoto (no hay transacción distribuida con Graph).
+- **Consecuencias:** puede haber acciones pendientes de reconciliación manual; no se restituye gasto ni aprendizaje. Se usa la cola existente sin una dependencia nueva. La reautenticación reforzada y los webhooks quedan pendientes; no se habilita ninguna regla de escritura automática. [Especificación y pruebas](ACTION_CENTER.md).

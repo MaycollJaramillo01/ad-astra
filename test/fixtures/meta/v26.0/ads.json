@@ -1,0 +1,72 @@
+[
+  {
+    "id": "100026",
+    "name": "[sanitized]",
+    "adset_id": "100020",
+    "campaign_id": "100015",
+    "status": "PAUSED",
+    "effective_status": "PAUSED",
+    "configured_status": "PAUSED",
+    "creative": {
+      "id": "100027"
+    },
+    "created_time": "2026-08-31T13:48:12-0600",
+    "updated_time": "2026-10-21T09:46:27-0600"
+  },
+  {
+    "id": "100028",
+    "name": "[sanitized]",
+    "adset_id": "100020",
+    "campaign_id": "100015",
+    "status": "PAUSED",
+    "effective_status": "PAUSED",
+    "configured_status": "PAUSED",
+    "creative": {
+      "id": "100029"
+    },
+    "created_time": "2026-09-24T15:59:25-0600",
+    "updated_time": "2026-10-21T09:46:22-0600"
+  },
+  {
+    "id": "100030",
+    "name": "[sanitized]",
+    "adset_id": "100022",
+    "campaign_id": "100016",
+    "status": "ACTIVE",
+    "effective_status": "ACTIVE",
+    "configured_status": "ACTIVE",
+    "creative": {
+      "id": "100031"
+    },
+    "created_time": "2026-10-02T10:49:44-0600",
+    "updated_time": "2026-10-13T08:59:20-0600"
+  },
+  {
+    "id": "100032",
+    "name": "[sanitized]",
+    "adset_id": "100022",
+    "campaign_id": "100016",
+    "status": "ACTIVE",
+    "effective_status": "ACTIVE",
+    "configured_status": "ACTIVE",
+    "creative": {
+      "id": "100033"
+    },
+    "created_time": "2026-09-01T09:03:47-0600",
+    "updated_time": "2026-10-13T08:52:56-0600"
+  },
+  {
+    "id": "100034",
+    "name": "[sanitized]",
+    "adset_id": "100035",
+    "campaign_id": "100036",
+    "status": "PAUSED",
+    "effective_status": "PAUSED",
+    "configured_status": "PAUSED",
+    "creative": {
+      "id": "100037"
+    },
+    "created_time": "2024-05-29T16:37:05-0600",
+    "updated_time": "2026-08-25T10:39:50-0600"
+  }
+]

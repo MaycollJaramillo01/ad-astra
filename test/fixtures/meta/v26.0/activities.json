@@ -1,0 +1,67 @@
+[
+  {
+    "event_time": "2026-10-23T03:19:09+0000",
+    "event_type": "ad_account_billing_charge",
+    "translated_event_type": "Cuenta facturada",
+    "object_id": "100010",
+    "object_name": "[sanitized]",
+    "object_type": "ACCOUNT",
+    "actor_id": "100044",
+    "actor_name": "[sanitized]",
+    "application_id": "100044",
+    "extra_data": "[sanitized]",
+    "date_time_in_timezone": "22/10/2026 a las 9:19 p. m."
+  },
+  {
+    "event_time": "2026-10-22T05:45:45+0000",
+    "event_type": "create_audience",
+    "translated_event_type": "Público personalizado creado",
+    "object_id": "100045",
+    "object_name": "[sanitized]",
+    "object_type": "CAMPAIGN",
+    "actor_id": "100044",
+    "actor_name": "[sanitized]",
+    "application_id": "100044",
+    "extra_data": "[sanitized]",
+    "date_time_in_timezone": "21/10/2026 a las 11:45 p. m."
+  },
+  {
+    "event_time": "2026-10-22T05:45:45+0000",
+    "event_type": "create_audience",
+    "translated_event_type": "Público personalizado creado",
+    "object_id": "100046",
+    "object_name": "[sanitized]",
+    "object_type": "CAMPAIGN",
+    "actor_id": "100044",
+    "actor_name": "[sanitized]",
+    "application_id": "100044",
+    "extra_data": "[sanitized]",
+    "date_time_in_timezone": "21/10/2026 a las 11:45 p. m."
+  },
+  {
+    "event_time": "2026-10-22T05:45:45+0000",
+    "event_type": "create_audience",
+    "translated_event_type": "Público personalizado creado",
+    "object_id": "100047",
+    "object_name": "[sanitized]",
+    "object_type": "CAMPAIGN",
+    "actor_id": "100044",
+    "actor_name": "[sanitized]",
+    "application_id": "100044",
+    "extra_data": "[sanitized]",
+    "date_time_in_timezone": "21/10/2026 a las 11:45 p. m."
+  },
+  {
+    "event_time": "2026-10-22T05:45:45+0000",
+    "event_type": "create_audience",
+    "translated_event_type": "Público personalizado creado",
+    "object_id": "100048",
+    "object_name": "[sanitized]",
+    "object_type": "CAMPAIGN",
+    "actor_id": "100044",
+    "actor_name": "[sanitized]",
+    "application_id": "100044",
+    "extra_data": "[sanitized]",
+    "date_time_in_timezone": "21/10/2026 a las 11:45 p. m."
+  }
+]

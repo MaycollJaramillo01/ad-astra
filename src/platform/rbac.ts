@@ -26,6 +26,12 @@ export const PERMISSIONS = {
   'findings:decide': ['owner', 'admin', 'manager', 'analyst'],
   'recommendations:read': ALL,
   'recommendations:decide': ['owner', 'admin', 'manager'],
+  'actions:read': ALL,
+  'actions:propose': ['owner', 'admin', 'manager', 'analyst'],
+  'actions:approve': ['owner', 'admin', 'manager'],
+  'actions:configure': ADMINS,
+  /** Diseñar y cancelar experimentos de presupuesto (no tocan Meta: el plan se aplica a mano). */
+  'experiments:manage': ['owner', 'admin', 'manager'],
   /** Asistente de IA: preguntar (gasta presupuesto) y proponer sus recomendaciones a la cola. */
   'ai:use': ['owner', 'admin', 'manager', 'analyst'],
   'audit_log:read': ADMINS,

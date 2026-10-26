@@ -661,6 +661,7 @@ export const recommendations = pgTable(
     decisionReason: text('decision_reason'),
   },
   (t) => [
+    unique('recommendations_tenant_id_id').on(t.tenantId, t.id),
     foreignKey({
       columns: [t.tenantId, t.adAccountId],
       foreignColumns: [adAccounts.tenantId, adAccounts.id],
@@ -757,6 +758,47 @@ export const auditConfigs = pgTable(
       columns: [t.tenantId, t.clientId],
       foreignColumns: [clients.tenantId, clients.id],
     }).onDelete('cascade'),
+  ],
+);
+
+// --- Experimentos de presupuesto (F6). El plan aleatorizado se guarda al diseñarlo; el análisis se
+// calcula al leerlo con los datos de Insights. Cancelar es la única modificación.
+export const EXPERIMENT_STATUSES = ['planned', 'cancelled'] as const;
+
+export const budgetExperiments = pgTable(
+  'budget_experiments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: tenantId(),
+    adAccountId: uuid('ad_account_id').notNull(),
+    campaignMetaId: text('campaign_meta_id').notNull(),
+    /** Campo del evento clave (leads, purchases…) con el que se analiza. */
+    kpiField: text('kpi_field').notNull(),
+    status: text('status', { enum: EXPERIMENT_STATUSES }).notNull().default('planned'),
+    startDate: date('start_date').notNull(),
+    burnInDays: integer('burn_in_days').notNull(),
+    /** Gasto diario de referencia, en unidades mayores de la moneda de la cuenta. */
+    baseDailySpend: numeric('base_daily_spend', { precision: 20, scale: 4 }).notNull(),
+    levels: jsonb('levels').notNull(),
+    /** Periodos con su multiplicador asignado al azar. */
+    schedule: jsonb('schedule').notNull(),
+    seed: integer('seed').notNull(),
+    /** Elasticidad observada al diseñarlo (para calibrar el sesgo de confusión) y potencia. */
+    observed: jsonb('observed'),
+    power: jsonb('power'),
+    createdBy: uuid('created_by').notNull(),
+    createdAt: createdAt(),
+    cancelledAt: ts('cancelled_at'),
+    cancelledBy: uuid('cancelled_by'),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.tenantId, t.adAccountId],
+      foreignColumns: [adAccounts.tenantId, adAccounts.id],
+    }),
+    index('budget_experiments_account').on(t.tenantId, t.adAccountId),
+    check('budget_experiments_status_check', oneOf(sql`${t.status}`, EXPERIMENT_STATUSES)),
+    check('budget_experiments_burn_in_check', sql`${t.burnInDays} between 0 and 5`),
   ],
 );
 
@@ -879,5 +921,136 @@ export const auditLog = pgTable(
   (t) => [
     index('audit_log_tenant_at').on(t.tenantId, t.at),
     check('audit_log_actor_check', oneOf(sql`${t.actorType}`, ['user', 'system', 'ai'])),
+  ],
+);
+
+// Action Center: comandos absolutos; nunca se guardan tokens ni peticiones Graph arbitrarias.
+export const actionPolicies = pgTable(
+  'action_policies',
+  {
+    tenantId: tenantId(),
+    adAccountId: uuid('ad_account_id').primaryKey(),
+    config: jsonb('config').notNull(),
+    updatedBy: uuid('updated_by').notNull(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.tenantId, t.adAccountId],
+      foreignColumns: [adAccounts.tenantId, adAccounts.id],
+    }),
+  ],
+);
+
+export const actions = pgTable(
+  'actions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: tenantId(),
+    adAccountId: uuid('ad_account_id').notNull(),
+    recommendationId: uuid('recommendation_id'),
+    rollbackOf: uuid('rollback_of'),
+    entityLevel: text('entity_level', { enum: ['campaign', 'adset', 'ad'] }).notNull(),
+    entityMetaId: text('entity_meta_id').notNull(),
+    operation: text('operation', {
+      enum: ['pause', 'activate', 'set_daily_budget', 'set_lifetime_budget'],
+    }).notNull(),
+    desired: text('desired').notNull(),
+    reason: text('reason').notNull(),
+    idempotencyKey: uuid('idempotency_key').notNull(),
+    requestHash: text('request_hash').notNull(),
+    state: text('state', {
+      enum: ['proposed', 'review', 'approved', 'executing', 'verifying', 'failed', 'closed'],
+    })
+      .notNull()
+      .default('proposed'),
+    revision: integer('revision').notNull().default(0),
+    proposedBy: uuid('proposed_by').notNull(),
+    preview: jsonb('preview'),
+    after: jsonb('after'),
+    result: text('result'),
+    error: text('error'),
+    dispatchAt: ts('dispatch_at'),
+    reservedAt: ts('reserved_at'),
+    confirmedWrite: boolean('confirmed_write').notNull().default(false),
+    verificationAttempts: integer('verification_attempts').notNull().default(0),
+    createdAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    unique('actions_tenant_id_id').on(t.tenantId, t.id),
+    unique('actions_idempotency').on(t.tenantId, t.idempotencyKey),
+    uniqueIndex('actions_recommendation')
+      .on(t.tenantId, t.recommendationId)
+      .where(sql`${t.rollbackOf} is null`),
+    uniqueIndex('actions_rollback').on(t.tenantId, t.rollbackOf),
+    uniqueIndex('actions_one_pending_target')
+      .on(t.tenantId, t.adAccountId, t.entityMetaId)
+      .where(sql`${t.state} <> 'closed'`),
+    foreignKey({
+      columns: [t.tenantId, t.adAccountId],
+      foreignColumns: [adAccounts.tenantId, adAccounts.id],
+    }),
+    foreignKey({
+      columns: [t.tenantId, t.recommendationId],
+      foreignColumns: [recommendations.tenantId, recommendations.id],
+    }),
+    foreignKey({ columns: [t.tenantId, t.rollbackOf], foreignColumns: [t.tenantId, t.id] }),
+    check(
+      'actions_state_check',
+      oneOf(sql`${t.state}`, [
+        'proposed',
+        'review',
+        'approved',
+        'executing',
+        'verifying',
+        'failed',
+        'closed',
+      ]),
+    ),
+    check(
+      'actions_operation_check',
+      oneOf(sql`${t.operation}`, ['pause', 'activate', 'set_daily_budget', 'set_lifetime_budget']),
+    ),
+    check('actions_level_check', oneOf(sql`${t.entityLevel}`, ['campaign', 'adset', 'ad'])),
+  ],
+);
+
+export const actionApprovals = pgTable(
+  'action_approvals',
+  {
+    tenantId: tenantId(),
+    actionId: uuid('action_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    previewHash: text('preview_hash').notNull(),
+    reason: text('reason').notNull(),
+    at: ts('at').notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.actionId, t.previewHash, t.userId] }),
+    foreignKey({
+      columns: [t.tenantId, t.actionId],
+      foreignColumns: [actions.tenantId, actions.id],
+    }),
+  ],
+);
+
+export const actionEvents = pgTable(
+  'action_events',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+    tenantId: tenantId(),
+    actionId: uuid('action_id').notNull(),
+    event: text('event').notNull(),
+    actorId: uuid('actor_id'),
+    data: jsonb('data'),
+    at: ts('at').notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.tenantId, t.actionId],
+      foreignColumns: [actions.tenantId, actions.id],
+    }),
+    index('action_events_action').on(t.tenantId, t.actionId, t.id),
   ],
 );

@@ -1,0 +1,108 @@
+[
+  {
+    "id": "act_100001",
+    "account_id": "100002",
+    "name": "[sanitized]",
+    "currency": "HNL",
+    "timezone_name": "America/Los_Angeles",
+    "timezone_offset_hours_utc": -7,
+    "account_status": 1,
+    "disable_reason": 0,
+    "amount_spent": "1256856.33",
+    "spend_cap": "0.00",
+    "user_tasks": [
+      "DRAFT",
+      "ANALYZE",
+      "ADVERTISE"
+    ],
+    "created_time": "2009-08-05T18:41:52-0700"
+  },
+  {
+    "id": "act_100003",
+    "account_id": "100004",
+    "name": "[sanitized]",
+    "currency": "USD",
+    "timezone_name": "America/Los_Angeles",
+    "timezone_offset_hours_utc": -7,
+    "account_status": 1,
+    "disable_reason": 0,
+    "amount_spent": "37415.51",
+    "spend_cap": "406445.00",
+    "business": {
+      "id": "100005",
+      "name": "[sanitized]"
+    },
+    "user_tasks": [
+      "DRAFT",
+      "ANALYZE",
+      "ADVERTISE"
+    ],
+    "created_time": "2014-03-31T20:32:27-0700"
+  },
+  {
+    "id": "act_100006",
+    "account_id": "100007",
+    "name": "[sanitized]",
+    "currency": "HNL",
+    "timezone_name": "America/Los_Angeles",
+    "timezone_offset_hours_utc": -7,
+    "account_status": 1,
+    "disable_reason": 0,
+    "amount_spent": "520402.04",
+    "spend_cap": "0.00",
+    "business": {
+      "id": "100008",
+      "name": "[sanitized]"
+    },
+    "user_tasks": [
+      "DRAFT",
+      "ANALYZE",
+      "ADVERTISE"
+    ],
+    "created_time": "2026-03-14T11:37:07-0700"
+  },
+  {
+    "id": "act_100009",
+    "account_id": "100010",
+    "name": "[sanitized]",
+    "currency": "HNL",
+    "timezone_name": "America/Tegucigalpa",
+    "timezone_offset_hours_utc": -6,
+    "account_status": 1,
+    "disable_reason": 0,
+    "amount_spent": "10753971.93",
+    "spend_cap": "0.00",
+    "business": {
+      "id": "100011",
+      "name": "[sanitized]"
+    },
+    "user_tasks": [
+      "DRAFT",
+      "ANALYZE",
+      "ADVERTISE"
+    ],
+    "created_time": "2019-12-23T16:27:17-0600"
+  },
+  {
+    "id": "act_100012",
+    "account_id": "100013",
+    "name": "[sanitized]",
+    "currency": "HNL",
+    "timezone_name": "America/Tegucigalpa",
+    "timezone_offset_hours_utc": -6,
+    "account_status": 1,
+    "disable_reason": 0,
+    "amount_spent": "5581962.08",
+    "spend_cap": "0.00",
+    "business": {
+      "id": "100014",
+      "name": "[sanitized]"
+    },
+    "user_tasks": [
+      "DRAFT",
+      "ANALYZE",
+      "ADVERTISE"
+    ],
+    "created_time": "2020-11-22T13:36:16-0600"
+  }
+]

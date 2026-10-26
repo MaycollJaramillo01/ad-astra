@@ -1,0 +1,259 @@
+[
+  {
+    "account_id": "100010",
+    "campaign_id": "100017",
+    "adset_id": "100023",
+    "date_start": "2026-09-24",
+    "date_stop": "2026-09-24",
+    "account_currency": "HNL",
+    "spend": "61.65",
+    "impressions": "3472",
+    "reach": "2346",
+    "clicks": "62",
+    "inline_link_clicks": "39",
+    "outbound_clicks": [
+      {
+        "action_type": "outbound_click",
+        "value": "1"
+      }
+    ],
+    "actions": [
+      {
+        "action_type": "link_click",
+        "value": "39"
+      },
+      {
+        "action_type": "post_reaction",
+        "value": "4"
+      },
+      {
+        "action_type": "onsite_conversion.total_messaging_connection",
+        "value": "18"
+      },
+      {
+        "action_type": "onsite_conversion.post_unlike",
+        "value": "1"
+      },
+      {
+        "action_type": "post_engagement",
+        "value": "44"
+      },
+      {
+        "action_type": "post_interaction_gross",
+        "value": "5"
+      },
+      {
+        "action_type": "comment",
+        "value": "1"
+      },
+      {
+        "action_type": "page_engagement",
+        "value": "44"
+      },
+      {
+        "action_type": "post_interaction_net",
+        "value": "4"
+      },
+      {
+        "action_type": "onsite_conversion.messaging_user_depth_2_message_send",
+        "value": "3"
+      },
+      {
+        "action_type": "onsite_conversion.messaging_first_reply",
+        "value": "13"
+      },
+      {
+        "action_type": "onsite_conversion.post_net_comment",
+        "value": "1"
+      },
+      {
+        "action_type": "onsite_conversion.messaging_user_depth_3_message_send",
+        "value": "4"
+      },
+      {
+        "action_type": "onsite_conversion.post_net_like",
+        "value": "3"
+      },
+      {
+        "action_type": "onsite_conversion.messaging_conversation_started_7d",
+        "value": "14"
+      }
+    ],
+    "results": [
+      {
+        "indicator": "actions:onsite_conversion.messaging_conversation_started_7d",
+        "values": [
+          {
+            "value": "14",
+            "attribution_windows": [
+              "default"
+            ]
+          }
+        ]
+      }
+    ],
+    "objective": "OUTCOME_ENGAGEMENT",
+    "optimization_goal": "REPLIES",
+    "attribution_setting": "1d_view_7d_click"
+  },
+  {
+    "account_id": "100010",
+    "campaign_id": "100016",
+    "adset_id": "100022",
+    "date_start": "2026-09-24",
+    "date_stop": "2026-09-24",
+    "account_currency": "HNL",
+    "spend": "12.72",
+    "impressions": "760",
+    "reach": "661",
+    "clicks": "57",
+    "inline_link_clicks": "24",
+    "actions": [
+      {
+        "action_type": "link_click",
+        "value": "24"
+      },
+      {
+        "action_type": "post_reaction",
+        "value": "1"
+      },
+      {
+        "action_type": "onsite_conversion.total_messaging_connection",
+        "value": "16"
+      },
+      {
+        "action_type": "post_engagement",
+        "value": "25"
+      },
+      {
+        "action_type": "post_interaction_gross",
+        "value": "1"
+      },
+      {
+        "action_type": "page_engagement",
+        "value": "25"
+      },
+      {
+        "action_type": "post_interaction_net",
+        "value": "1"
+      },
+      {
+        "action_type": "onsite_conversion.messaging_user_depth_2_message_send",
+        "value": "6"
+      },
+      {
+        "action_type": "onsite_conversion.messaging_first_reply",
+        "value": "5"
+      },
+      {
+        "action_type": "onsite_conversion.messaging_user_depth_3_message_send",
+        "value": "2"
+      },
+      {
+        "action_type": "onsite_conversion.post_net_like",
+        "value": "1"
+      },
+      {
+        "action_type": "onsite_conversion.messaging_conversation_started_7d",
+        "value": "12"
+      }
+    ],
+    "results": [
+      {
+        "indicator": "actions:onsite_conversion.messaging_conversation_started_7d",
+        "values": [
+          {
+            "value": "12",
+            "attribution_windows": [
+              "default"
+            ]
+          }
+        ]
+      }
+    ],
+    "objective": "OUTCOME_ENGAGEMENT",
+    "optimization_goal": "REPLIES",
+    "attribution_setting": "1d_view_7d_click"
+  },
+  {
+    "account_id": "100010",
+    "campaign_id": "100015",
+    "adset_id": "100020",
+    "date_start": "2026-09-24",
+    "date_stop": "2026-09-24",
+    "account_currency": "HNL",
+    "spend": "18.68",
+    "impressions": "1353",
+    "reach": "1198",
+    "clicks": "150",
+    "inline_link_clicks": "56",
+    "outbound_clicks": [
+      {
+        "action_type": "outbound_click",
+        "value": "2"
+      }
+    ],
+    "actions": [
+      {
+        "action_type": "link_click",
+        "value": "56"
+      },
+      {
+        "action_type": "post_reaction",
+        "value": "3"
+      },
+      {
+        "action_type": "onsite_conversion.total_messaging_connection",
+        "value": "32"
+      },
+      {
+        "action_type": "post_engagement",
+        "value": "60"
+      },
+      {
+        "action_type": "post_interaction_gross",
+        "value": "4"
+      },
+      {
+        "action_type": "page_engagement",
+        "value": "60"
+      },
+      {
+        "action_type": "post_interaction_net",
+        "value": "4"
+      },
+      {
+        "action_type": "onsite_conversion.messaging_first_reply",
+        "value": "19"
+      },
+      {
+        "action_type": "post",
+        "value": "1"
+      },
+      {
+        "action_type": "onsite_conversion.post_net_like",
+        "value": "3"
+      },
+      {
+        "action_type": "onsite_conversion.messaging_conversation_started_7d",
+        "value": "30"
+      }
+    ],
+    "results": [
+      {
+        "indicator": "actions:onsite_conversion.messaging_conversation_started_7d",
+        "values": [
+          {
+            "value": "30",
+            "attribution_windows": [
+              "default"
+            ]
+          }
+        ]
+      }
+    ],
+    "objective": "OUTCOME_ENGAGEMENT",
+    "optimization_goal": "REPLIES",
+    "attribution_setting": "1d_view_7d_click"
+  }
+]

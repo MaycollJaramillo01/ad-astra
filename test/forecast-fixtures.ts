@@ -21,6 +21,8 @@ export interface SyntheticSpec {
   spendNoise?: number;
   /** Leads esperados dado el gasto del día: k · gasto^b. */
   leads?: { k: number; b: number };
+  /** Multiplicador de los leads esperados de una fecha (festivos, días de pago…). */
+  effect?: (date: string) => number;
   attribution?: (t: number) => string;
 }
 
@@ -36,14 +38,16 @@ export function synthetic(spec: SyntheticSpec): DailyRow[] {
     if (expected <= 0) continue; // sin entrega: Meta no devuelve fila
     const spend = expected * Math.exp(sd * z - (sd * sd) / 2);
     const impressions = poissonSample(spend * 100, rand);
+    const date = addDays(until, t - spec.days + 1);
+    const lift = spec.effect?.(date) ?? 1;
     rows.push({
-      date: addDays(until, t - spec.days + 1),
+      date,
       attribution: spec.attribution?.(t) ?? '7d_click_1d_view',
       values: {
         spend,
         impressions,
         inlineLinkClicks: poissonSample(impressions * 0.01, rand),
-        leads: spec.leads ? poissonSample(spec.leads.k * spend ** spec.leads.b, rand) : 0,
+        leads: spec.leads ? poissonSample(lift * spec.leads.k * spend ** spec.leads.b, rand) : 0,
       },
     });
   }

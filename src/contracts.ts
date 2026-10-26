@@ -10,6 +10,7 @@ import {
 } from './domain.ts';
 import { Answer, SUFFICIENCY } from './modules/ai/answer.ts';
 import { AuditConfigPatch } from './modules/audit/model.ts';
+import { EVENT_CATEGORIES } from './modules/forecasting/calendar.ts';
 import {
   BASE_FIELDS,
   type BaseField,
@@ -493,15 +494,41 @@ export const AiProposeParams = AiMessageParams.extend({
   index: z.coerce.number().int().min(0).max(5),
 });
 
-// --- Pronóstico y simulación (F6). Solo lectura: se calculan al pedirlos desde insights_daily.
+// --- Pronóstico y simulación (F6). Se calculan al pedirlos desde insights_daily; los
+// experimentos de presupuesto guardan su diseño (budget_experiments).
 
 const MetaOrUuid = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
-const ExcludedRange = z
-  .object({ since: day, until: day, label: z.string().trim().min(1).max(80) })
-  .refine((r) => r.since <= r.until, { message: 'since debe ser anterior o igual a until' });
+const CampaignId = z.string().regex(/^\d{1,30}$/);
+const EventCategory = z.enum(EVENT_CATEGORIES);
+/** Evento propio: promoción, festivo por decreto o incidencia (esta solo se excluye). */
+const UserEventDto = z
+  .object({
+    since: day,
+    until: day,
+    label: z.string().trim().min(1).max(80),
+    category: EventCategory,
+    yearly: z.boolean().default(false),
+  })
+  .refine((r) => r.since <= r.until && daysBetween(r.since, r.until) <= 62, {
+    message: 'since ≤ until y como mucho 62 días',
+  });
+const CalendarEventDto = z.object({
+  key: z.string(),
+  label: z.string(),
+  category: EventCategory,
+  since: day,
+  until: day,
+  source: z.enum(['builtin', 'user']),
+});
 const ForecastStatus = z.enum(['published', 'not_published', 'insufficient_data', 'paused']);
 const Band = z.object({ point: z.number(), lower: z.number(), upper: z.number() });
 const Quantiles = z.object({ p10: z.number(), p50: z.number(), p90: z.number() });
+const calendarShape = {
+  /** Eventos propios (se suman al calendario incorporado). */
+  events: z.array(UserEventDto).max(50).default([]),
+  /** Festivos y fechas comerciales incorporados (Honduras y región) y días de pago. */
+  builtinCalendar: z.boolean().default(true),
+};
 
 export const ForecastBody = z.object({
   level: z.enum(['account', 'campaign']),
@@ -509,8 +536,7 @@ export const ForecastBody = z.object({
   horizonDays: z.number().int().min(7).max(56).default(28),
   /** Último día observado (por defecto, ayer en la zona horaria de la cuenta). */
   asOf: day.optional(),
-  /** Eventos externos (promociones, caídas, festivos): sus días no se ajustan ni se puntúan. */
-  exclude: z.array(ExcludedRange).max(20).default([]),
+  ...calendarShape,
 });
 const ModelScoreDto = z.object({
   model: z.string(),
@@ -520,6 +546,15 @@ const ModelScoreDto = z.object({
   relMae: num,
   wapeTotal: num,
   biasTotal: num,
+});
+const EventEffectDto = z.object({
+  key: z.string(),
+  label: z.string(),
+  category: EventCategory,
+  occurrences: z.number().int(),
+  /** Multiplicador sobre el día normal: central e intervalo del 80 %. */
+  effect: Band,
+  source: z.enum(['history', 'prior']),
 });
 const ForecastMetricDto = z.object({
   id: z.string(),
@@ -535,17 +570,29 @@ const ForecastMetricDto = z.object({
   backtest: z
     .object({
       origins: z.number().int(),
+      selectionOrigins: z.number().int(),
+      evaluationOrigins: z.number().int(),
+      selectionScores: z.array(ModelScoreDto),
       chosen: z.string().nullable(),
       chosenLabel: z.string().nullable(),
       method: z.string().nullable(),
       scores: z.array(ModelScoreDto),
       calibration: z
-        .object({ evaluated: z.number().int(), dailyCoverage: num, totalCoverage: num })
+        .object({
+          evaluated: z.number().int(),
+          dailyCoverage: num,
+          totalCoverage: num,
+          eventDays: z.number().int(),
+          eventCoverage: num,
+        })
         .nullable(),
     })
     .nullable(),
-  history: z.array(z.object({ date: day, value: num, immature: z.boolean() })),
-  forecast: z.array(Band.extend({ date: day })).nullable(),
+  events: z.array(EventEffectDto),
+  history: z.array(
+    z.object({ date: day, value: num, immature: z.boolean(), event: z.string().nullable() }),
+  ),
+  forecast: z.array(Band.extend({ date: day, event: z.string().nullable() })).nullable(),
   total: Band.nullable(),
 });
 const ForecastRatioDto = z.object({
@@ -576,7 +623,10 @@ export const ForecastDto = z.object({
   usableDays: z.number().int(),
   requiredDays: z.number().int(),
   breaks: z.array(z.object({ date: day, reason: z.enum(['attribution', 'pause']) })),
-  excluded: z.array(ExcludedRange),
+  events: z.array(UserEventDto),
+  builtinCalendar: z.boolean(),
+  /** Eventos que caen en el horizonte. */
+  calendar: z.array(CalendarEventDto),
   criteria: z.record(z.string(), z.unknown()),
   metrics: z.array(ForecastMetricDto),
   ratios: z.array(ForecastRatioDto),
@@ -589,20 +639,24 @@ export const SimulationBody = z.object({
   adAccountId: z.uuid(),
   horizonDays: z.number().int().min(7).max(91).default(28),
   asOf: day.optional(),
-  exclude: z.array(ExcludedRange).max(20).default([]),
+  ...calendarShape,
   /** Gasto diario planificado por campaña; las demás mantienen el gasto actual. */
   changes: z
-    .array(
-      z.object({
-        campaignId: z.string().regex(/^\d{1,30}$/),
-        dailySpend: z.number().min(0).max(1e9),
-      }),
-    )
+    .array(z.object({ campaignId: CampaignId, dailySpend: z.number().min(0).max(1e9) }))
     .max(500)
     .default([]),
   seed: z.number().int().min(0).max(2_147_483_647).default(1),
 });
 const CostQuantiles = z.object({ p10: num, p50: num, p90: num });
+const ExperimentResultDto = z.object({
+  periods: z.number().int(),
+  analyzed: z.number().int(),
+  complete: z.boolean(),
+  elasticity: Band.extend({ se: z.number() }).nullable(),
+  firstStage: z.object({ slope: z.number(), se: z.number(), f: z.number() }).nullable(),
+  compliance: num,
+  reasons: z.array(z.string()),
+});
 const SimulationCampaignDto = z.object({
   id: z.string(),
   name: z.string(),
@@ -618,13 +672,38 @@ const SimulationCampaignDto = z.object({
     .object({
       weeks: z.number().int(),
       events: z.number(),
+      /** Elasticidad observada en el gasto actual (ajustada por tendencia, eventos y otras campañas). */
       elasticity: Band,
       learned: z.number(),
+      /** Elasticidad para un cambio de gasto: observada + confusión, o la del experimento. */
+      causal: Band.extend({
+        source: z.enum(['observational', 'experiment']),
+      }),
+      curvature: Band,
+      /** Efecto del gasto de las otras campañas con el mismo evento (null si no hay). */
+      spillover: Band.nullable(),
+      trend: Band,
       phi: z.number(),
+      shockSd: z.number(),
       spendRange: z.tuple([z.number(), z.number()]),
     })
     .nullable(),
-  validation: z.object({ evaluated: z.number().int(), coverage: num, relMae: num }).nullable(),
+  validation: z
+    .object({
+      oneStep: z.object({ evaluated: z.number().int(), coverage: num, relMae: num }),
+      extremes: z.object({
+        evaluated: z.number().int(),
+        coverage: num,
+        reachAbove: z.number(),
+        reachBelow: z.number(),
+      }),
+    })
+    .nullable(),
+  /** Gasto diario con escenarios publicables (fuera, no se publica). */
+  validatedRange: z
+    .object({ minDaily: z.number(), maxDaily: z.number(), reliableShape: z.boolean() })
+    .nullable(),
+  experiment: z.object({ id: z.uuid(), startDate: day, result: ExperimentResultDto }).nullable(),
   outcome: z
     .object({
       spend: z.number(),
@@ -657,13 +736,69 @@ export const SimulationDto = z.object({
       cost: CostQuantiles,
       probNoEvents: z.number(),
       expectedChange: Quantiles,
+      /** Correlación media de los choques semanales entre sus campañas. */
+      correlation: num,
     }),
   ),
   spend: z.object({ current: z.number(), planned: z.number(), notSimulated: z.number() }),
-  prior: z.object({ mean: z.number(), sd: z.number() }),
+  priors: z.record(z.string(), z.unknown()),
+  confounding: z.object({
+    sd: z.number(),
+    source: z.enum(['default', 'experiments']),
+    experiments: z.number().int(),
+  }),
   assumptions: z.array(z.string()),
   limitations: z.array(z.string()),
   inputHash: z.string(),
+});
+
+export const ExperimentBody = z
+  .object({
+    adAccountId: z.uuid(),
+    campaignId: CampaignId,
+    /** Multiplicadores del gasto diario de referencia (p. ej. 0,8 · 1 · 1,25). */
+    levels: z.array(z.number().min(0.3).max(3)).min(2).max(5).default([0.8, 1, 1.25]),
+    /** Bloques: cada uno contiene cada nivel una vez (periodos = bloques × niveles). */
+    blocks: z.number().int().min(2).max(8).default(3),
+    startDate: day,
+    burnInDays: z.number().int().min(0).max(5).default(2),
+    /** Gasto diario de referencia; por defecto, la media de los últimos 28 días. */
+    baseDailySpend: z.number().positive().max(1e9).optional(),
+    seed: z.number().int().min(0).max(2_147_483_647).optional(),
+  })
+  .refine((b) => new Set(b.levels).size === b.levels.length, 'los niveles deben ser distintos');
+export const ExperimentListQuery = z.object({ adAccountId: z.uuid() });
+const ExperimentScheduleDto = z.array(
+  z.object({
+    period: z.number().int(),
+    since: day,
+    until: day,
+    multiplier: z.number(),
+    dailySpend: z.number(),
+  }),
+);
+export const ExperimentPreviewDto = z.object({
+  campaignId: z.string(),
+  campaignName: z.string(),
+  kpi: z.object({ field: z.string(), label: z.string() }),
+  baseDailySpend: z.number(),
+  burnInDays: z.number().int(),
+  seed: z.number().int(),
+  schedule: ExperimentScheduleDto,
+  /** Error típico esperado de la elasticidad y diferencia detectable (α 0,05, potencia 80 %). */
+  power: z.object({ se: z.number(), detectable: z.number() }).nullable(),
+  observed: z.object({ mean: z.number(), sd: z.number() }).nullable(),
+  warnings: z.array(z.string()),
+});
+export const ExperimentDto = ExperimentPreviewDto.extend({
+  id: z.uuid(),
+  status: z.enum(['planned', 'running', 'awaiting_data', 'complete', 'cancelled']),
+  startDate: day,
+  endDate: day,
+  levels: z.array(z.number()),
+  result: ExperimentResultDto,
+  createdAt: iso,
+  cancelledAt: iso.nullable(),
 });
 
 export type Me = z.infer<typeof MeDto>;
@@ -694,3 +829,5 @@ export type Forecast = z.infer<typeof ForecastDto>;
 export type ForecastMetric = z.infer<typeof ForecastMetricDto>;
 export type Simulation = z.infer<typeof SimulationDto>;
 export type SimulationCampaign = z.infer<typeof SimulationCampaignDto>;
+export type Experiment = z.infer<typeof ExperimentDto>;
+export type ExperimentPreview = z.infer<typeof ExperimentPreviewDto>;

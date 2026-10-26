@@ -1,0 +1,256 @@
+[
+  {
+    "account_id": "100010",
+    "date_start": "2026-09-24",
+    "date_stop": "2026-09-24",
+    "account_currency": "HNL",
+    "spend": "93.05",
+    "impressions": "5585",
+    "reach": "3901",
+    "clicks": "269",
+    "inline_link_clicks": "119",
+    "outbound_clicks": [
+      {
+        "action_type": "outbound_click",
+        "value": "3"
+      }
+    ],
+    "actions": [
+      {
+        "action_type": "link_click",
+        "value": "119"
+      },
+      {
+        "action_type": "post_reaction",
+        "value": "8"
+      },
+      {
+        "action_type": "onsite_conversion.total_messaging_connection",
+        "value": "66"
+      },
+      {
+        "action_type": "onsite_conversion.post_unlike",
+        "value": "1"
+      },
+      {
+        "action_type": "post_engagement",
+        "value": "129"
+      },
+      {
+        "action_type": "post_interaction_gross",
+        "value": "10"
+      },
+      {
+        "action_type": "comment",
+        "value": "1"
+      },
+      {
+        "action_type": "page_engagement",
+        "value": "129"
+      },
+      {
+        "action_type": "post_interaction_net",
+        "value": "9"
+      },
+      {
+        "action_type": "onsite_conversion.messaging_user_depth_2_message_send",
+        "value": "9"
+      },
+      {
+        "action_type": "onsite_conversion.messaging_first_reply",
+        "value": "37"
+      },
+      {
+        "action_type": "post",
+        "value": "1"
+      },
+      {
+        "action_type": "onsite_conversion.post_net_comment",
+        "value": "1"
+      },
+      {
+        "action_type": "onsite_conversion.messaging_user_depth_3_message_send",
+        "value": "6"
+      },
+      {
+        "action_type": "onsite_conversion.post_net_like",
+        "value": "7"
+      },
+      {
+        "action_type": "onsite_conversion.messaging_conversation_started_7d",
+        "value": "56"
+      }
+    ],
+    "objective": "MULTIPLE",
+    "optimization_goal": "Unknown Optimization Goal",
+    "attribution_setting": "multiple"
+  },
+  {
+    "account_id": "100010",
+    "date_start": "2026-09-25",
+    "date_stop": "2026-09-25",
+    "account_currency": "HNL",
+    "spend": "94.46",
+    "impressions": "5327",
+    "reach": "4009",
+    "clicks": "301",
+    "inline_link_clicks": "136",
+    "outbound_clicks": [
+      {
+        "action_type": "outbound_click",
+        "value": "4"
+      }
+    ],
+    "actions": [
+      {
+        "action_type": "link_click",
+        "value": "136"
+      },
+      {
+        "action_type": "post_reaction",
+        "value": "9"
+      },
+      {
+        "action_type": "onsite_conversion.total_messaging_connection",
+        "value": "97"
+      },
+      {
+        "action_type": "post_engagement",
+        "value": "150"
+      },
+      {
+        "action_type": "post_interaction_gross",
+        "value": "14"
+      },
+      {
+        "action_type": "comment",
+        "value": "3"
+      },
+      {
+        "action_type": "page_engagement",
+        "value": "150"
+      },
+      {
+        "action_type": "post_interaction_net",
+        "value": "14"
+      },
+      {
+        "action_type": "onsite_conversion.messaging_user_depth_2_message_send",
+        "value": "45"
+      },
+      {
+        "action_type": "onsite_conversion.messaging_first_reply",
+        "value": "70"
+      },
+      {
+        "action_type": "onsite_conversion.post_save",
+        "value": "2"
+      },
+      {
+        "action_type": "onsite_conversion.post_net_comment",
+        "value": "3"
+      },
+      {
+        "action_type": "onsite_conversion.messaging_user_depth_3_message_send",
+        "value": "19"
+      },
+      {
+        "action_type": "onsite_conversion.post_net_save",
+        "value": "2"
+      },
+      {
+        "action_type": "onsite_conversion.post_net_like",
+        "value": "9"
+      },
+      {
+        "action_type": "onsite_conversion.messaging_conversation_started_7d",
+        "value": "87"
+      }
+    ],
+    "objective": "MULTIPLE",
+    "optimization_goal": "Unknown Optimization Goal",
+    "attribution_setting": "multiple"
+  },
+  {
+    "account_id": "100010",
+    "date_start": "2026-09-26",
+    "date_stop": "2026-09-26",
+    "account_currency": "HNL",
+    "spend": "112.69",
+    "impressions": "6301",
+    "reach": "4888",
+    "clicks": "283",
+    "inline_link_clicks": "127",
+    "outbound_clicks": [
+      {
+        "action_type": "outbound_click",
+        "value": "4"
+      }
+    ],
+    "actions": [
+      {
+        "action_type": "link_click",
+        "value": "127"
+      },
+      {
+        "action_type": "post_reaction",
+        "value": "9"
+      },
+      {
+        "action_type": "onsite_conversion.total_messaging_connection",
+        "value": "78"
+      },
+      {
+        "action_type": "onsite_conversion.post_unlike",
+        "value": "1"
+      },
+      {
+        "action_type": "post_engagement",
+        "value": "137"
+      },
+      {
+        "action_type": "post_interaction_gross",
+        "value": "10"
+      },
+      {
+        "action_type": "comment",
+        "value": "1"
+      },
+      {
+        "action_type": "page_engagement",
+        "value": "137"
+      },
+      {
+        "action_type": "post_interaction_net",
+        "value": "9"
+      },
+      {
+        "action_type": "onsite_conversion.messaging_user_depth_2_message_send",
+        "value": "19"
+      },
+      {
+        "action_type": "onsite_conversion.messaging_first_reply",
+        "value": "59"
+      },
+      {
+        "action_type": "onsite_conversion.post_net_comment",
+        "value": "1"
+      },
+      {
+        "action_type": "onsite_conversion.messaging_user_depth_3_message_send",
+        "value": "2"
+      },
+      {
+        "action_type": "onsite_conversion.post_net_like",
+        "value": "8"
+      },
+      {
+        "action_type": "onsite_conversion.messaging_conversation_started_7d",
+        "value": "77"
+      }
+    ],
+    "objective": "MULTIPLE",
+    "optimization_goal": "Unknown Optimization Goal",
+    "attribution_setting": "multiple"
+  }
+]

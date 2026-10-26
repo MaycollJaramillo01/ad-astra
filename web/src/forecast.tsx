@@ -20,7 +20,7 @@ import { ToneIcon } from './ui.tsx';
 // garantía; lo que no supera su validación no se muestra y se dice por qué.
 
 type Unit = 'currency' | 'count';
-type Excluded = Forecast['excluded'][number];
+type ForecastEvent = Forecast['events'][number];
 const STATUS: Record<string, { label: string; tone: Tone }> = {
   published: { label: 'Publicado', tone: 'good' },
   not_published: { label: 'No publicado', tone: 'warning' },
@@ -58,9 +58,9 @@ function Disclaimer() {
       role="note"
       className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm dark:border-amber-700 dark:bg-amber-950/40"
     >
-      <strong>Estimación, no garantía.</strong> Los rangos son intervalos del 80 %: en la validación
-      con datos pasados, alrededor de 1 de cada 5 valores quedó fuera. Describen patrones
-      observados, no causas.
+      <strong>Estimación, no garantía.</strong> Los rangos tienen un nivel nominal del 80 %.
+      Consulta la cobertura medida y los supuestos de cada modelo. Describen patrones observados;
+      los escenarios de presupuesto dependen de supuestos adicionales y no prueban causalidad.
     </p>
   );
 }
@@ -112,8 +112,9 @@ function AccountPicker() {
 
 function ForecastView({ level, id }: { level: 'account' | 'campaign'; id: string }) {
   const [horizon, setHorizon] = useState(28);
-  const [exclude, setExclude] = useState<Excluded[]>([]);
-  const body = { level, id, horizonDays: horizon, exclude };
+  const [events, setEvents] = useState<ForecastEvent[]>([]);
+  const [builtinCalendar, setBuiltinCalendar] = useState(false);
+  const body = { level, id, horizonDays: horizon, events, builtinCalendar };
   const q = useQuery({
     queryKey: ['forecast', body],
     queryFn: () => api<Forecast>('/v1/forecasts', { method: 'POST', body }),
@@ -173,7 +174,21 @@ function ForecastView({ level, id }: { level: 'account' | 'campaign'; id: string
             </label>
           </div>
           <DataSummary forecast={f} />
-          <ExclusionEditor value={exclude} onChange={setExclude} />
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={builtinCalendar}
+              onChange={(e) => setBuiltinCalendar(e.target.checked)}
+            />
+            Usar calendario de Honduras, fechas comerciales y quincenas
+          </label>
+          <EventEditor value={events} onChange={setEvents} />
+          {f.calendar.length > 0 && (
+            <p className="text-sm text-gray-600 dark:text-gray-300">
+              Eventos del horizonte:{' '}
+              {f.calendar.map((e) => `${e.label} (${formatRange(e.since, e.until)})`).join('; ')}.
+            </p>
+          )}
           {metric && (
             <div className="space-y-3">
               <div className="flex flex-wrap gap-1" role="tablist" aria-label="Métrica">
@@ -192,6 +207,7 @@ function ForecastView({ level, id }: { level: 'account' | 'campaign'; id: string
               </div>
               <FanChart metric={metric} currency={f.node.currency} />
               <ModelCard metric={metric} />
+              <EventEffects metric={metric} />
             </div>
           )}
           <TotalsTable forecast={f} />
@@ -204,7 +220,8 @@ function ForecastView({ level, id }: { level: 'account' | 'campaign'; id: string
           <ScenarioSimulator
             accountId={f.node.accountId}
             currency={f.node.currency}
-            exclude={exclude}
+            events={events}
+            builtinCalendar={builtinCalendar}
           />
         ) : (
           <p className="text-sm">
@@ -253,21 +270,28 @@ function DataSummary({ forecast: f }: { forecast: Forecast }) {
   );
 }
 
-function ExclusionEditor({
+function EventEditor({
   value,
   onChange,
 }: {
-  value: Excluded[];
-  onChange: (v: Excluded[]) => void;
+  value: ForecastEvent[];
+  onChange: (v: ForecastEvent[]) => void;
 }) {
-  const [draft, setDraft] = useState({ since: '', until: '', label: '' });
+  const [draft, setDraft] = useState<ForecastEvent>({
+    since: '',
+    until: '',
+    label: '',
+    category: 'promotion',
+    yearly: false,
+  });
   const formId = useId();
-  const valid = draft.since && draft.until && draft.since <= draft.until && draft.label.trim();
+  const days = (Date.parse(draft.until) - Date.parse(draft.since)) / 86_400_000;
+  const valid = draft.since && draft.until && days >= 0 && days <= 62 && draft.label.trim();
   const add = (e: FormEvent) => {
     e.preventDefault();
     if (!valid) return;
     onChange([...value, { ...draft, label: draft.label.trim() }]);
-    setDraft({ since: '', until: '', label: '' });
+    setDraft({ since: '', until: '', label: '', category: 'promotion', yearly: false });
   };
   const input =
     'rounded border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-950';
@@ -277,8 +301,9 @@ function ExclusionEditor({
         Eventos externos ({value.length}): promociones, festivos, caídas de seguimiento…
       </summary>
       <p className="mt-2 text-gray-600 dark:text-gray-300">
-        Sus días no se usan para ajustar ni para puntuar los modelos. Un evento futuro no se modela:
-        el intervalo no lo cubre.
+        Promociones, festivos y pagos se estiman con su historia. Sin ocurrencias, el modelo usa un
+        supuesto previo y amplía la incertidumbre. Las incidencias se excluyen del ajuste y la
+        evaluación. Máximo 62 días por evento; solo marca eventos conocidos al planificar.
       </p>
       {value.length > 0 && (
         <ul className="mt-2 space-y-1">
@@ -288,7 +313,8 @@ function ExclusionEditor({
               className="flex flex-wrap items-center gap-2"
             >
               <span>
-                {formatRange(r.since, r.until)} · {r.label}
+                {formatRange(r.since, r.until)} · {r.label} ({r.category})
+                {r.yearly ? ' · anual' : ''}
               </span>
               <button
                 type="button"
@@ -329,8 +355,32 @@ function ExclusionEditor({
             onChange={(e) => setDraft({ ...draft, label: e.target.value })}
           />
         </label>
+        <label className="flex flex-col">
+          <span className="text-xs text-gray-500">Tipo</span>
+          <select
+            className={select}
+            value={draft.category}
+            onChange={(e) =>
+              setDraft({ ...draft, category: e.target.value as ForecastEvent['category'] })
+            }
+          >
+            <option value="promotion">Promoción</option>
+            <option value="holiday">Festivo</option>
+            <option value="commercial">Fecha comercial</option>
+            <option value="payday">Días de pago</option>
+            <option value="incident">Incidencia (excluir)</option>
+          </select>
+        </label>
+        <label className="flex items-center gap-1 py-1">
+          <input
+            type="checkbox"
+            checked={draft.yearly}
+            onChange={(e) => setDraft({ ...draft, yearly: e.target.checked })}
+          />{' '}
+          Repetir cada año
+        </label>
         <button type="submit" className={button} disabled={!valid || value.length >= 20}>
-          Excluir
+          Añadir evento
         </button>
       </form>
     </details>
@@ -644,6 +694,53 @@ function Key({
 
 // --- Ficha del modelo y totales
 
+function EventEffects({ metric }: { metric: ForecastMetric }) {
+  if (!metric.events.length) return null;
+  return (
+    <details className="rounded border border-gray-200 px-3 py-2 text-sm dark:border-gray-800">
+      <summary className="cursor-pointer">Efectos de eventos y evidencia</summary>
+      <p className="mt-2 text-gray-600 dark:text-gray-300">
+        Multiplicadores respecto al día habitual. Un efecto basado en el a priori es un supuesto,
+        sin validación específica para ese evento. La recurrencia anual no equivale a una
+        estacionalidad anual aprendida.
+      </p>
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full text-left tabular-nums">
+          <caption className="sr-only">
+            Evidencia de los efectos de eventos para {metric.label}
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Evento</th>
+              <th scope="col">Ocurrencias</th>
+              <th scope="col">Multiplicador (80 %)</th>
+              <th scope="col">Fuente</th>
+            </tr>
+          </thead>
+          <tbody>
+            {metric.events.map((e) => (
+              <tr key={e.key}>
+                <th scope="row" className="py-1 pr-3 font-normal">
+                  {e.label}
+                </th>
+                <td>{e.occurrences}</td>
+                <td>
+                  {dec(e.effect.point)} ({dec(e.effect.lower)} a {dec(e.effect.upper)})
+                </td>
+                <td>
+                  {e.source === 'history'
+                    ? 'Historia, con contracción'
+                    : 'A priori, sin ocurrencias'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  );
+}
+
 function ModelCard({ metric }: { metric: ForecastMetric }) {
   const bt = metric.backtest;
   return (
@@ -662,7 +759,8 @@ function ModelCard({ metric }: { metric: ForecastMetric }) {
         {bt && (
           <>
             <p>
-              Backtest de origen móvil: {bt.origins} orígenes semanales. Modelo elegido:{' '}
+              Backtest: {bt.origins} orígenes semanales; {bt.selectionOrigins} para elegir el modelo
+              y {bt.evaluationOrigins} posteriores para evaluar su error. Modelo elegido:{' '}
               <strong>{bt.chosenLabel ?? 'ninguno'}</strong>
               {bt.method && ` — ${bt.method}`}
             </p>
@@ -713,7 +811,9 @@ function ModelCard({ metric }: { metric: ForecastMetric }) {
               <p>
                 Cobertura empírica del intervalo del 80 % en {bt.calibration.evaluated} orígenes
                 calibrados solo con el pasado: diaria {pct(bt.calibration.dailyCoverage)}, del total{' '}
-                {pct(bt.calibration.totalCoverage)} (se publica con la diaria entre 70 % y 90 %).
+                {pct(bt.calibration.totalCoverage)} (se publica con la diaria entre 70 % y 90 %).{' '}
+                Días de evento evaluados: {bt.calibration.eventDays}, cobertura{' '}
+                {pct(bt.calibration.eventCoverage)}.
               </p>
             )}
           </>
@@ -834,11 +934,13 @@ function CardNotes({ assumptions, limitations }: { assumptions: string[]; limita
 function ScenarioSimulator({
   accountId,
   currency,
-  exclude,
+  events,
+  builtinCalendar,
 }: {
   accountId: string;
   currency: string;
-  exclude: Excluded[];
+  events: ForecastEvent[];
+  builtinCalendar: boolean;
 }) {
   const [horizon, setHorizon] = useState(28);
   // Cambios en % por campaña: el borrador y el aplicado (que se convierte en gasto diario al simular).
@@ -847,7 +949,13 @@ function ScenarioSimulator({
     pct: Record<string, number>;
     changes: Array<{ campaignId: string; dailySpend: number }>;
   }>({ pct: {}, changes: [] });
-  const body = { adAccountId: accountId, horizonDays: horizon, exclude, changes: applied.changes };
+  const body = {
+    adAccountId: accountId,
+    horizonDays: horizon,
+    events,
+    builtinCalendar,
+    changes: applied.changes,
+  };
   const q = useQuery({
     queryKey: ['simulation', body],
     queryFn: () => api<Simulation>('/v1/simulations', { method: 'POST', body }),
@@ -896,6 +1004,11 @@ function ScenarioSimulator({
         </label>
       </div>
       <Disclaimer />
+      <p className="text-sm text-gray-600 dark:text-gray-300">
+        El gasto del plan es una entrada fija. La validación de eventos es semanal y condicionada al
+        gasto observado; los totales del escenario son exploratorios, especialmente con campañas
+        correlacionadas.
+      </p>
       {q.error && <ErrorBox error={q.error} />}
       {!sim ? (
         <p className="text-sm text-gray-500">Calculando el escenario…</p>
@@ -955,6 +1068,11 @@ function ScenarioSimulator({
             <button type="submit" className={button} disabled={!dirty || q.isFetching}>
               Simular
             </button>
+            {dirty && (
+              <span role="status" className="text-sm text-amber-700 dark:text-amber-400">
+                Cambios sin simular: los resultados corresponden al último plan calculado.
+              </span>
+            )}
             <button
               type="button"
               className={button}
@@ -1025,9 +1143,17 @@ function ScenarioSimulator({
           <CurvesTable sim={sim} currency={currency} />
           <CardNotes assumptions={sim.assumptions} limitations={sim.limitations} />
           <p className="text-xs text-gray-500">
-            {sim.version} · semilla {sim.seed} · a priori de la elasticidad N({dec(sim.prior.mean)};{' '}
-            {dec(sim.prior.sd)}²) · huella {sim.inputHash.slice(0, 12)}
+            {sim.version} · semilla {sim.seed} · incertidumbre de confusión σ ={' '}
+            {dec(sim.confounding.sd)} (
+            {sim.confounding.source === 'experiments'
+              ? `${sim.confounding.experiments} experimentos`
+              : 'supuesto, sin evidencia experimental suficiente'}
+            ) · huella {sim.inputHash.slice(0, 12)}
           </p>
+          <details className="text-xs">
+            <summary>Supuestos previos del modelo</summary>
+            <pre className="mt-2 overflow-auto">{JSON.stringify(sim.priors, null, 2)}</pre>
+          </details>
         </form>
       )}
     </section>
@@ -1069,6 +1195,12 @@ function CampaignRow({
       <th scope="row" className="py-1.5 pr-3 text-left font-normal">
         <div>{c.name}</div>
         <div className="text-xs text-gray-500">Evento: {c.kpi.label}</div>
+        {c.validatedRange && (
+          <div className="text-xs text-gray-600 dark:text-gray-300">
+            Rango validado: {money(c.validatedRange.minDaily)} a {money(c.validatedRange.maxDaily)}
+            /día.
+          </div>
+        )}
         {c.status !== 'published' && (
           <div className="mt-1 flex items-start gap-1 text-xs">
             <StatusTag status={c.status} />
@@ -1127,6 +1259,9 @@ function CampaignRow({
       </td>
       <td className="whitespace-nowrap py-1.5 pr-3 text-right">
         {o ? costRange(o.cost, currency) : '—'}
+        {o && o.probNoEvents > 0 && (
+          <div className="text-xs">P(0 eventos): {pct(o.probNoEvents)}</div>
+        )}
       </td>
       <td className="whitespace-nowrap py-1.5 text-right">
         {o ? changeRange(o.expectedChange) : '—'}
@@ -1164,9 +1299,9 @@ function CurvesTable({ sim, currency }: { sim: Simulation; currency: string }) {
     <details className="text-sm">
       <summary className="cursor-pointer font-medium">Curvas de respuesta y su validación</summary>
       <p className="mt-2 text-gray-600 dark:text-gray-300">
-        Por campaña, eventos semanales ≈ e^a · (gasto semanal)^b. La elasticidad b indica cuánto
-        varían los eventos cuando varía el gasto (b &lt; 1: rendimientos decrecientes). Es una
-        relación observada, no un efecto causal.
+        La curva ajusta gasto, curvatura, tendencia, eventos externos y gasto de otras campañas. La
+        elasticidad local describe una asociación. Sin un experimento válido, el cambio simulado
+        incluye un supuesto sobre confusión; no identifica un efecto causal.
       </p>
       <div className="mt-2 overflow-x-auto">
         <table className="w-full tabular-nums">
@@ -1200,6 +1335,10 @@ function CurvesTable({ sim, currency }: { sim: Simulation; currency: string }) {
                 <tr key={c.id} className="border-t border-gray-100 dark:border-gray-900">
                   <th scope="row" className="py-1 pr-3 text-left font-normal">
                     {c.name}
+                    <div className="text-xs text-gray-500">
+                      Extremos: {c.validation?.extremes.evaluated ?? 0} semanas, cobertura{' '}
+                      {pct(c.validation?.extremes.coverage)}.
+                    </div>
                   </th>
                   <td className="py-1 pr-3 text-right">
                     {k.weeks} · {fmt(k.events, 'count', null)}
@@ -1207,6 +1346,13 @@ function CurvesTable({ sim, currency }: { sim: Simulation; currency: string }) {
                   <td className="py-1 pr-3 text-right">
                     {dec(k.elasticity.point)} ({dec(k.elasticity.lower)} a {dec(k.elasticity.upper)}
                     )
+                    <div className="text-xs text-gray-500">
+                      Escenario: {dec(k.causal.point)} ({dec(k.causal.lower)} a{' '}
+                      {dec(k.causal.upper)}),{' '}
+                      {k.causal.source === 'experiment'
+                        ? 'experimento, condicionado a sus supuestos'
+                        : 'observación + confusión supuesta'}
+                    </div>
                   </td>
                   <td className="py-1 pr-3 text-right">{pct(k.learned)}</td>
                   <td className="py-1 pr-3 text-right">
@@ -1214,7 +1360,7 @@ function CurvesTable({ sim, currency }: { sim: Simulation; currency: string }) {
                   </td>
                   <td className="py-1 text-right">
                     {c.validation
-                      ? `${c.validation.evaluated} semanas · cobertura ${pct(c.validation.coverage)} · MAE ÷ costo constante ${dec(c.validation.relMae)}`
+                      ? `${c.validation.oneStep.evaluated} semanas · cobertura ${pct(c.validation.oneStep.coverage)} · MAE ÷ costo constante ${dec(c.validation.oneStep.relMae)}`
                       : '—'}
                   </td>
                 </tr>

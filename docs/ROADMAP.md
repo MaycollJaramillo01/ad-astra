@@ -213,6 +213,8 @@ Plantilla de cada fase: (1) objetivo y alcance · (2) requisitos funcionales y n
 
 ### 4.6 F5 — Centro de optimización con aprobación humana
 
+> **Estado (2026-10-26): Action Center implementado y probado con Graph simulado**: estados, diff en vivo, aprobaciones independientes, políticas por cuenta, consentimiento, importes absolutos, cola durable, bloqueo por cuenta, marcador anterior al POST, reconciliación sin reenvío ambiguo, bitácora inmutable y rollback condicionado. Escrituras desactivadas por defecto. Especificación y evidencia en [ACTION_CENTER.md](ACTION_CENTER.md). Pendientes: sandbox autorizado (CA-F5-03 real), piloto, reautenticación reforzada y webhooks; no se declara cerrada toda F5.
+
 1. **Objetivo y alcance.** Proponer, previsualizar, aprobar, ejecutar, verificar y revertir cambios en Meta con control total. Tipos iniciales: estado (pausar o activar) y presupuesto (diario o total) de campañas, conjuntos y anuncios.
 2. **Requisitos.**
    - FR: propuestas desde reglas, IA o usuarios; previsualización con estado en vivo, diff, impacto esperado con intervalo y advertencias; guardrails ([ARCHITECTURE §6.9](ARCHITECTURE.md#69-centro-de-optimización-f5)); aprobación por rol con doble aprobación por encima del umbral y reautenticación; ejecución idempotente; verificación; reversión; kill switch; seguimiento antes y después (con la advertencia de que no es causal); webhooks de `effective_status` y `with_issues_ad_objects`.

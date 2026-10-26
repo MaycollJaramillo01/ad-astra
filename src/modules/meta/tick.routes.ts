@@ -7,6 +7,8 @@ import type { TokenCipher } from '../../platform/crypto.ts';
 import { AppError, notFound, unauthorized } from '../../platform/errors.ts';
 import { runTick } from '../../platform/jobs.ts';
 import { createAuditHandler } from '../audit/service.ts';
+import { createActionGateway } from '../optimization/meta.ts';
+import { createActionHandler } from '../optimization/worker.ts';
 import { createSyncHandlers } from './sync.ts';
 
 // Tick de la cola (ADR-022): Vercel Cron llama a GET /v1/internal/tick con
@@ -23,6 +25,11 @@ export function createTickRunner(config: Config, db: Db, cipher: TokenCipher, lo
       log,
     }),
     audit: createAuditHandler(db),
+    action_execute: createActionHandler({
+      db,
+      config,
+      gateway: createActionGateway({ db, config, cipher }),
+    }),
   };
   return () =>
     runTick({

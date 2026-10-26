@@ -1,37 +1,43 @@
-import { robustZ } from '../audit/stats.ts';
+import { median, robustZ } from '../audit/stats.ts';
 import { addDays } from '../insights/catalog.ts';
+import { type CalendarEvent, type EventCategory, eventLookup, MODELED } from './calendar.ts';
 
 // Pronóstico de series diarias "si nada cambia" (ARCHITECTURE §6.10, docs/FORECASTING.md).
 // Funciones puras y deterministas: no leen el reloj ni la BD y no usan aleatoriedad.
 //
 //   1. Historia utilizable: desde el último cambio de atribución o la última pausa (≥ 7 días sin
-//      gasto); los días de eventos externos marcados se excluyen y los atípicos aislados se acotan.
+//      gasto); las incidencias se excluyen y los atípicos aislados se acotan.
 //   2. Modelos: ingenuo estacional (referencia obligatoria), perfil semanal y Holt-Winters
-//      amortiguado (ETS(A,Ad,A)).
-//   3. Backtest de origen móvil semanal con hueco de maduración: MAE, MASE y MAE relativo al
+//      amortiguado (ETS(A,Ad,A)), ajustados sin los días de evento.
+//   3. Festivos, fechas comerciales, días de pago y promociones: efecto multiplicativo por evento
+//      con contracción jerárquica (categoría → evento → ocurrencia), estimado solo con el pasado.
+//   4. Backtest de origen móvil semanal con hueco de maduración: MAE, MASE y MAE relativo al
 //      ingenuo estacional sobre los mismos puntos.
-//   4. Intervalos empíricos (conformes en el tiempo): cuantiles de los errores fuera de muestra de
-//      orígenes cuyo resultado ya se conocía; la cobertura se mide en orígenes posteriores.
-//   5. Publicación solo si el modelo supera al baseline (CA-F6-01) y la cobertura del 80 % cae en
+//   5. Intervalos empíricos (conformes en el tiempo): cuantiles de los errores fuera de muestra de
+//      orígenes cuyo resultado ya se conocía, más la incertidumbre del efecto en días de evento.
+//   6. Publicación solo si el modelo supera al baseline (CA-F6-01) y la cobertura del 80 % cae en
 //      [70 %, 90 %] (CA-F6-02).
 
-export const FORECAST_VERSION = 'forecast-1.0.0';
+export const FORECAST_VERSION = 'forecast-1.2.0';
 
 /** Ficha del pronóstico: se publica con cada resultado (CA-F6-03). */
 export const FORECAST_CARD = {
   assumptions: [
     'Si nada cambia: presupuestos, segmentación, creatividades y entrega de Meta siguen como en la historia reciente.',
-    'Estacionalidad solo semanal; la anual, los festivos y las fechas de pago no se modelan (harían falta 2 años o más de historia).',
+    'Estacionalidad semanal en los modelos; festivos, fechas comerciales, días de pago y promociones como efectos multiplicativos estimados con sus ocurrencias pasadas.',
+    'Un evento sin ocurrencias en la historia toma el efecto medio de su categoría con una incertidumbre amplia: su intervalo se ensancha en lugar de ignorarlo.',
     'Los días cuyas conversiones aún maduran no entran en el ajuste; el horizonte empieza mañana.',
-    'Los días marcados como eventos externos no se ajustan ni se puntúan; los picos aislados se acotan.',
+    'Las incidencias marcadas no se ajustan ni se puntúan; los picos aislados se acotan.',
     'La historia empieza tras el último cambio de atribución o la última pausa de 7 días o más.',
   ],
   limitations: [
     'Estimación, no garantía: el intervalo del 80 % deja fuera, en el backtest, alrededor de 1 de cada 5 valores.',
-    'Un evento futuro (promoción, festivo, cambio de presupuesto) no está dentro del intervalo.',
+    'Un cambio de presupuesto, segmentación o creatividades no está en el pronóstico: para eso está el simulador.',
     'Los intervalos se calibran con errores pasados: tras un cambio de régimen dejan de valer hasta volver a calibrarse.',
+    'El calendario incorporado es el de Honduras y las fechas comerciales de la región; los festivos por decreto y los de otros países se añaden como eventos propios.',
     'Correlación, no causalidad: el pronóstico prolonga patrones, no explica por qué ocurren.',
     'Meta reexpresa los últimos 28 días: los datos recientes aún pueden cambiar un poco.',
+    'Un día sin fila se interpreta como sin entrega. Si faltan sincronizaciones, hay que marcar esos días como incidencia: el motor no distingue una ausencia de ingesta de un cero real.',
   ],
 };
 
@@ -90,11 +96,6 @@ export interface DailyRow {
   attribution: string | null;
   values: Record<string, number>;
 }
-export interface ExcludedRange {
-  since: string;
-  until: string;
-  label: string;
-}
 export type BreakReason = 'attribution' | 'pause';
 
 export interface History {
@@ -104,8 +105,12 @@ export interface History {
   dates: string[];
   /** Cambios de régimen detectados; la historia empieza en el último. */
   breaks: Array<{ date: string; reason: BreakReason }>;
-  /** Días de eventos externos dentro de la historia (no se ajustan ni se puntúan). */
+  /** Días de incidencias dentro de la historia (no se ajustan ni se puntúan). */
   excluded: boolean[];
+  /** Evento modelado de cada día de la historia (festivo, fecha comercial, pago o promoción). */
+  event: Array<CalendarEvent | null>;
+  /** Evento modelado de cualquier fecha (también futura). */
+  eventAt: (date: string) => CalendarEvent | null;
   /** La entidad lleva ≥ 7 días sin gasto al final: está en pausa. */
   pausedAtEnd: boolean;
   /** Valor diario de un campo (0 en los días sin fila: sin entrega). */
@@ -115,12 +120,18 @@ export interface History {
 /**
  * Historia utilizable hasta `until`. Un día sin fila es un día sin entrega (0). La serie arranca
  * en el primer día con datos o, si después hubo un cambio de atribución o una pausa, tras el último.
+ * `events` (calendarEvents) marca los días de evento; las incidencias quedan excluidas.
  */
 export function prepareHistory(
   rows: readonly DailyRow[],
   until: string,
-  exclude: readonly ExcludedRange[] = [],
+  events: readonly CalendarEvent[] = [],
 ): History {
+  const lookup = eventLookup(events);
+  const modeled = (d: string) => {
+    const e = lookup(d);
+    return e && MODELED.includes(e.category) ? e : null;
+  };
   const used = rows.filter((r) => r.date <= until).sort((a, b) => a.date.localeCompare(b.date));
   const empty: History = {
     start: null,
@@ -128,6 +139,8 @@ export function prepareHistory(
     dates: [],
     breaks: [],
     excluded: [],
+    event: [],
+    eventAt: modeled,
     pausedAtEnd: false,
     field: () => [],
   };
@@ -151,7 +164,7 @@ export function prepareHistory(
   });
   let pausedAtEnd = false;
   for (let i = 0; i < spend.length; ) {
-    if (v(spend, i) > 0) {
+    if (v(spend, i) > 0 || !finite(v(spend, i))) {
       i++;
       continue;
     }
@@ -168,23 +181,26 @@ export function prepareHistory(
   breaks.sort((a, b) => a.date.localeCompare(b.date));
 
   const dates = all.slice(cut);
-  const excluded = dates.map((d) => exclude.some((r) => d >= r.since && d <= r.until));
   return {
     start: dates[0] ?? null,
     until,
     dates,
     breaks,
-    excluded,
+    excluded: dates.map((d) => lookup(d)?.category === 'incident'),
+    event: dates.map(modeled),
+    eventAt: modeled,
     pausedAtEnd,
     field: (name) => dates.map((d) => byDate.get(d)?.values[name] ?? 0),
   };
 }
 
 export interface Series {
-  /** Para ajustar: excluidos = NaN y atípicos aislados acotados. */
+  /** Para ajustar los modelos base: incidencias y días de evento = NaN; atípicos acotados. */
   train: number[];
-  /** Para puntuar: excluidos = NaN. */
+  /** Para puntuar y estimar efectos: incidencias = NaN. */
   actual: number[];
+  /** Evento modelado de cada día. */
+  event: Array<CalendarEvent | null>;
   /** Índices de los atípicos acotados. */
   anomalies: number[];
 }
@@ -192,10 +208,18 @@ export interface Series {
 /**
  * Serie de un campo. Los atípicos aislados (un pico que no se sostiene) se acotan a mediana ±
  * 5 MAD normalizadas para que no arrastren el nivel; un cambio sostenido no es aislado y se deja.
+ * Los días de evento no entran en los modelos base: su efecto se estima aparte (§3).
  */
 export function seriesOf(h: History, field: string): Series {
   const actual = h.field(field).map((x, i) => (h.excluded[i] ? Number.NaN : x));
-  const train = [...actual];
+  return seriesAt({ actual, event: h.event }, actual.length);
+}
+
+/** Rehace la limpieza dentro del corte: la confirmación de un pico nunca ve el holdout. */
+export function seriesAt(s: Pick<Series, 'actual' | 'event'>, T: number): Series {
+  const actual = s.actual.slice(0, T);
+  const event = s.event.slice(0, T);
+  const train = actual.map((x, i) => (event[i] ? Number.NaN : x));
   const anomalies: number[] = [];
   for (let i = 28; i < train.length; i++) {
     const window = train.slice(i - 28, i).filter(finite);
@@ -212,7 +236,128 @@ export function seriesOf(h: History, field: string): Series {
     train[i] = z.median + (Math.sign(z.z) * CRITERIA.anomalyZ * z.mad) / 0.6745;
     anomalies.push(i);
   }
-  return { train, actual, anomalies };
+  return { train, actual, event, anomalies };
+}
+
+// --- Efectos de los eventos
+
+/**
+ * A prioris del efecto (escala log): una categoría N(0; 0,5²); cada evento se aparta de su categoría
+ * con sd 0,3; cada ocurrencia, de su evento con sd 0,15 (una misma fecha no rinde igual cada año).
+ */
+export const EFFECT_PRIOR = { category: 0.5, key: 0.3, occurrence: 0.15 };
+
+export interface EventEffect {
+  key: string;
+  label: string;
+  category: EventCategory;
+  /** Efecto en escala log para una nueva ocurrencia: media y desviación típica predictivas. */
+  mean: number;
+  sd: number;
+  /** Ocurrencias pasadas usadas. */
+  occurrences: number;
+}
+
+/** Valor esperado sin evento: mediana del mismo día de la semana en las 4 semanas previas. */
+function baselineAt(train: readonly number[], t: number): number | null {
+  const vals = [1, 2, 3, 4]
+    .map((j) => train[t - 7 * j])
+    .filter((x): x is number => x !== undefined && finite(x));
+  return vals.length >= 2 ? (median(vals) as number) : null;
+}
+
+/**
+ * Efectos estimados con los días anteriores a T. Cada ocurrencia aporta l = ln((ΣA + ½)/(ΣE + ½))
+ * con varianza σ²/m + 0,15², siendo σ la dispersión robusta de los días normales frente a su
+ * referencia y m sus días. Contracción normal-normal: categoría → evento.
+ */
+export function estimateEffects(s: Series, T: number): (e: CalendarEvent) => EventEffect {
+  const ratios: number[] = [];
+  for (let t = 28; t < T; t++) {
+    if (s.event[t] || !finite(v(s.train, t))) continue;
+    const e = baselineAt(s.train, t);
+    if (e !== null) ratios.push(Math.log((v(s.train, t) + 0.5) / (e + 0.5)));
+  }
+  const mid = median(ratios) ?? 0;
+  const sigma = Math.max(0.05, 1.4826 * (median(ratios.map((r) => Math.abs(r - mid))) ?? 0));
+
+  const occ = new Map<string, { category: EventCategory; list: Array<{ l: number; v: number }> }>();
+  let t = 0;
+  while (t < T) {
+    const ev = s.event[t];
+    if (!ev) {
+      t++;
+      continue;
+    }
+    let sumA = 0;
+    let sumE = 0;
+    let m = 0;
+    let u = t;
+    for (; u < T && s.event[u]?.key === ev.key; u++) {
+      const e = u >= 28 ? baselineAt(s.train, u) : null;
+      if (e === null || !finite(v(s.actual, u))) continue;
+      sumA += v(s.actual, u);
+      sumE += e;
+      m++;
+    }
+    if (m) {
+      const entry = occ.get(ev.key) ?? { category: ev.category, list: [] };
+      entry.list.push({
+        l: Math.log((sumA + 0.5) / (sumE + 0.5)),
+        v: (sigma * sigma) / m + EFFECT_PRIOR.occurrence ** 2,
+      });
+      occ.set(ev.key, entry);
+    }
+    t = u;
+  }
+
+  const tauK = EFFECT_PRIOR.key ** 2;
+  const categories = new Map<EventCategory, { mean: number; variance: number }>();
+  const categoryOf = (c: EventCategory) => {
+    const cached = categories.get(c);
+    if (cached) return cached;
+    let precision = 1 / EFFECT_PRIOR.category ** 2;
+    let weighted = 0;
+    for (const o of occ.values())
+      if (o.category === c)
+        for (const x of o.list) {
+          precision += 1 / (x.v + tauK);
+          weighted += x.l / (x.v + tauK);
+        }
+    const r = { mean: weighted / precision, variance: 1 / precision };
+    categories.set(c, r);
+    return r;
+  };
+  return (e) => {
+    const cat = categoryOf(e.category);
+    const list = occ.get(e.key)?.list ?? [];
+    let precision = 1 / (cat.variance + tauK);
+    let weighted = cat.mean * precision;
+    for (const x of list) {
+      precision += 1 / x.v;
+      weighted += x.l / x.v;
+    }
+    return {
+      key: e.key,
+      label: e.label,
+      category: e.category,
+      mean: weighted / precision,
+      sd: Math.sqrt(1 / precision + EFFECT_PRIOR.occurrence ** 2),
+      occurrences: list.length,
+    };
+  };
+}
+
+const Z80 = 1.2816;
+
+/** Ensancha [lo, hi] alrededor de p con una incertidumbre extra e sumada en cuadratura. */
+function widen(p: number, lo: number, hi: number, e: number): [number, number] {
+  const dl = Math.abs(p - lo);
+  const du = Math.abs(hi - p);
+  return [
+    Math.max(0, lo - (Math.sqrt(dl * dl + e * e) - dl)),
+    hi + (Math.sqrt(du * du + e * e) - du),
+  ];
 }
 
 // --- 2. Modelos. Cada uno recibe el entrenamiento (NaN = sin dato) y devuelve `steps` días.
@@ -386,19 +531,57 @@ export function originsFor(n: number, { horizon, gap }: Horizon): number[] {
 
 export interface OriginRun {
   T: number;
+  /** Pronóstico del modelo base; en los días de evento, multiplicado por el efecto estimado. */
   pred: number[];
   actual: number[];
+  /** Multiplicador del evento (1 en los días normales). */
+  mult: number[];
+  /** Desviación típica (log) del efecto en los días de evento; null en los normales. */
+  eventSd: Array<number | null>;
+  eventKey: Array<string | null>;
   /** Nivel de los últimos 28 días del entrenamiento: normaliza los errores. */
   norm: number;
   /** Denominador del MASE: error medio del ingenuo estacional de un paso en el entrenamiento. */
   scale: number;
 }
 
-function runOrigins(s: Series, origins: number[], model: ModelId, h: Horizon): OriginRun[] {
+type Effects = (e: CalendarEvent) => EventEffect;
+
+/** Aplica a un pronóstico base los efectos de los eventos de cada día. */
+function withEvents(
+  base: number[],
+  eventOf: (i: number) => CalendarEvent | null,
+  effects: Effects | null,
+) {
+  const mult: number[] = [];
+  const eventSd: Array<number | null> = [];
+  const eventKey: Array<string | null> = [];
+  const pred = base.map((p, i) => {
+    const e = effects ? eventOf(i) : null;
+    const fx = e && effects ? effects(e) : null;
+    mult.push(fx ? Math.exp(fx.mean) : 1);
+    eventSd.push(fx ? fx.sd : null);
+    eventKey.push(e ? e.key : null);
+    return fx ? p * Math.exp(fx.mean) : p;
+  });
+  return { pred, mult, eventSd, eventKey };
+}
+
+function runOrigins(
+  s: Series,
+  origins: number[],
+  model: ModelId,
+  h: Horizon,
+  effectsAt: ((T: number) => Effects) | null,
+): OriginRun[] {
   return origins.map((T) => {
-    const train = s.train.slice(0, T);
-    const pred = FORECASTERS[model](train, h.gap + h.horizon).slice(h.gap);
-    const actual = s.actual.slice(T + h.gap, T + h.gap + h.horizon);
+    const train = seriesAt(s, T).train;
+    const start = T + h.gap;
+    const adjusted = withEvents(
+      FORECASTERS[model](train, h.gap + h.horizon).slice(h.gap),
+      (i) => s.event[start + i] ?? null,
+      effectsAt ? effectsAt(T) : null,
+    );
     let sum = 0;
     let n = 0;
     for (let t = 7; t < T; t++) {
@@ -407,7 +590,13 @@ function runOrigins(s: Series, origins: number[], model: ModelId, h: Horizon): O
         n++;
       }
     }
-    return { T, pred, actual, norm: Math.max(meanLast(train, 28), 1e-9), scale: n ? sum / n : 0 };
+    return {
+      T,
+      ...adjusted,
+      actual: s.actual.slice(start, start + h.horizon),
+      norm: Math.max(meanLast(train, 28), 1e-9),
+      scale: n ? sum / n : 0,
+    };
   });
 }
 
@@ -471,7 +660,10 @@ export interface Calibration {
   evaluated: number;
   dailyCoverage: number | null;
   totalCoverage: number | null;
-  /** Cuantiles de los errores normalizados de todos los orígenes, por semana del horizonte. */
+  /** Cobertura solo en días de evento (con el efecto y su incertidumbre). */
+  eventDays: number;
+  eventCoverage: number | null;
+  /** Cuantiles de los errores normalizados de los días normales, por semana del horizonte. */
   daily: Array<[number, number]>;
   total: [number, number] | null;
 }
@@ -499,11 +691,12 @@ export function coverageOk(coverage: number, n: number): boolean {
   return coverage >= CRITERIA.coverage[0] - se && coverage <= CRITERIA.coverage[1] + se;
 }
 
+/** Errores normalizados de los días normales (los de evento llevan su propia incertidumbre). */
 function dailyErrors(runs: OriginRun[], buckets: number): number[][] {
   const out = Array.from({ length: buckets }, () => [] as number[]);
   for (const r of runs)
     r.actual.forEach((a, i) => {
-      if (finite(a)) out[bucketOf(i)]?.push((a - v(r.pred, i)) / r.norm);
+      if (finite(a) && r.eventSd[i] === null) out[bucketOf(i)]?.push((a - v(r.pred, i)) / r.norm);
     });
   return out.map(sortNum);
 }
@@ -513,13 +706,50 @@ function totalErrors(runs: OriginRun[]): number[] {
     let d = 0;
     let m = 0;
     r.actual.forEach((a, i) => {
-      if (!finite(a)) return;
+      if (!finite(a) || r.eventSd[i] !== null) return;
       d += a - v(r.pred, i);
       m++;
     });
     if (m) out.push(d / (r.norm * m));
   }
   return sortNum(out);
+}
+
+/** Intervalo de un día: el de los errores normales, escalado por el evento y ensanchado con su sd. */
+function dayInterval(
+  p: number,
+  mult: number,
+  sd: number | null,
+  [lo, hi]: [number, number],
+  norm: number,
+): [number, number] {
+  if (sd === null) return [Math.max(0, p + lo * norm), Math.max(0, p + hi * norm)];
+  return widen(p, p + mult * lo * norm, p + mult * hi * norm, Z80 * sd * p);
+}
+
+/** Intervalo de la suma de días: errores normales del total y, en cuadratura, los efectos (uno por evento). */
+function sumInterval(
+  pred: readonly number[],
+  eventSd: ReadonlyArray<number | null>,
+  eventKey: ReadonlyArray<string | null>,
+  days: (i: number) => boolean,
+  [lo, hi]: [number, number],
+  norm: number,
+): { point: number; lower: number; upper: number } {
+  let point = 0;
+  let m = 0;
+  const byKey = new Map<string, number>();
+  pred.forEach((p, i) => {
+    if (!days(i)) return;
+    point += p;
+    m++;
+    const key = eventKey[i];
+    const sd = eventSd[i];
+    if (key && sd !== null && sd !== undefined) byKey.set(key, (byKey.get(key) ?? 0) + p * sd);
+  });
+  const e = Z80 * Math.sqrt([...byKey.values()].reduce((s, x) => s + x * x, 0));
+  const [lower, upper] = widen(point, point + lo * norm * m, point + hi * norm * m, e);
+  return { point, lower, upper };
 }
 
 /** Orígenes anteriores cuyo horizonte ya se había observado en el origen k (sin fuga de futuro). */
@@ -532,33 +762,51 @@ export function calibrate(runs: OriginRun[], h: Horizon): Calibration {
   let inDaily = 0;
   let nDaily = 0;
   let inTotal = 0;
+  let inEvent = 0;
+  let nEvent = 0;
   runs.forEach((r, k) => {
     const past = observedBefore(runs, k, h);
     if (past.length < CRITERIA.minCalibration) return;
     evaluated++;
     const du = dailyErrors(past, buckets).map(errorInterval);
-    let sumA = 0;
-    let sumP = 0;
-    let m = 0;
     r.actual.forEach((a, i) => {
       if (!finite(a)) return;
-      const [lo, hi] = du[bucketOf(i)] as [number, number];
-      const p = v(r.pred, i);
-      if (a >= Math.max(0, p + lo * r.norm) && a <= p + hi * r.norm) inDaily++;
+      const sd = r.eventSd[i] ?? null;
+      const [lower, upper] = dayInterval(
+        v(r.pred, i),
+        v(r.mult, i),
+        sd,
+        du[bucketOf(i)] as [number, number],
+        r.norm,
+      );
+      const inside = a >= lower && a <= upper;
+      if (inside) inDaily++;
       nDaily++;
-      sumA += a;
-      sumP += p;
-      m++;
+      if (sd !== null) {
+        nEvent++;
+        if (inside) inEvent++;
+      }
     });
-    const [lo, hi] = errorInterval(totalErrors(past));
-    if (m && sumA >= Math.max(0, sumP + lo * r.norm * m) && sumA <= sumP + hi * r.norm * m)
-      inTotal++;
+    const tu = totalErrors(past);
+    if (!tu.length) return;
+    const total = sumInterval(
+      r.pred,
+      r.eventSd,
+      r.eventKey,
+      (i) => finite(v(r.actual, i)),
+      errorInterval(tu),
+      r.norm,
+    );
+    const sumA = r.actual.reduce((s, a) => (finite(a) ? s + a : s), 0);
+    if (sumA >= total.lower && sumA <= total.upper) inTotal++;
   });
   const tu = totalErrors(runs);
   return {
     evaluated,
     dailyCoverage: nDaily ? inDaily / nDaily : null,
     totalCoverage: evaluated ? inTotal / evaluated : null,
+    eventDays: nEvent,
+    eventCoverage: nEvent ? inEvent / nEvent : null,
     daily: dailyErrors(runs, buckets).map(errorInterval),
     total: tu.length ? errorInterval(tu) : null,
   };
@@ -577,13 +825,18 @@ export interface SeriesForecast {
   anomalies: number[];
   backtest: {
     origins: number;
+    selectionOrigins: number;
+    evaluationOrigins: number;
+    selectionScores: ModelScore[];
     scores: ModelScore[];
     chosen: ModelId | null;
     calibration: Calibration | null;
   } | null;
-  /** Días futuros (tras el hueco): central y su intervalo del 80 %. */
-  points: Array<{ point: number; lower: number; upper: number }> | null;
+  /** Días futuros (tras el hueco): central, intervalo del 80 % y evento del día. */
+  points: Array<{ point: number; lower: number; upper: number; event: string | null }> | null;
   total: { point: number; lower: number; upper: number } | null;
+  /** Efectos estimados de los eventos de la historia y del horizonte. */
+  events: EventEffect[];
   /** Ejecuciones del modelo elegido por origen (para los costos derivados). */
   runs: OriginRun[] | null;
   /** Pronóstico central del modelo elegido para los días futuros (también sin publicar). */
@@ -601,6 +854,12 @@ export function forecastSeries(
   const n = s.train.length;
   const required = requiredDays(h);
   const recentDailyMean = meanLast(s.actual, 56);
+  // Efectos con toda la historia: para el pronóstico final y la ficha.
+  const effects = estimateEffects(s, n);
+  const futureDate = (i: number) => addDays(history.until, h.gap + i + 1);
+  const future = Array.from({ length: h.horizon }, (_, i) => history.eventAt(futureDate(i)));
+  const seen = new Map<string, CalendarEvent>();
+  for (const e of [...s.event, ...future]) if (e && !seen.has(e.key)) seen.set(e.key, e);
   const base: SeriesForecast = {
     status: 'insufficient_data',
     reasons: [],
@@ -611,6 +870,7 @@ export function forecastSeries(
     backtest: null,
     points: null,
     total: null,
+    events: [...seen.values()].map(effects),
     runs: null,
     final: null,
   };
@@ -629,6 +889,15 @@ export function forecastSeries(
         `Hay ${n} días utilizables${history.start ? ` desde ${history.start}` : ''}; este horizonte exige ${required} (${CRITERIA.minTrain} de entrenamiento y orígenes semanales suficientes para validar y calibrar). Faltan ${required - n}.`,
       ],
     };
+  const normalDays = s.train.filter(finite).length;
+  const recentDays = s.train.slice(-56).filter(finite).length;
+  if (normalDays < CRITERIA.minTrain || recentDays < 28)
+    return {
+      ...base,
+      reasons: [
+        `Pocos días normales con dato: ${normalDays} en la historia y ${recentDays} en los últimos 56; hacen falta al menos ${CRITERIA.minTrain} y 28, respectivamente. Revisa incidencias y eventos prolongados.`,
+      ],
+    };
   if (opts.count && recentDailyMean < CRITERIA.minDailyEvents)
     return {
       ...base,
@@ -638,30 +907,69 @@ export function forecastSeries(
     };
 
   const origins = originsFor(n, h);
-  const runs = {
-    snaive: runOrigins(s, origins, 'snaive', h),
-    weekday: runOrigins(s, origins, 'weekday', h),
-    ets: runOrigins(s, origins, 'ets', h),
+  const cache = new Map<number, Effects>();
+  const effectsAt = (T: number) => {
+    let fx = cache.get(T);
+    if (!fx) {
+      fx = estimateEffects(seriesAt(s, T), T);
+      cache.set(T, fx);
+    }
+    return fx;
   };
-  const scores = (['snaive', 'weekday', 'ets'] as const).map((m) =>
-    score(m, runs[m], m === 'snaive' ? null : runs.snaive),
+  const runs = {
+    snaive: runOrigins(s, origins, 'snaive', h, null),
+    weekday: runOrigins(s, origins, 'weekday', h, effectsAt),
+    ets: runOrigins(s, origins, 'ets', h, effectsAt),
+  };
+  // Elegir solo con los primeros seis orígenes. Sus resultados deben haber madurado antes
+  // del primer origen de evaluación. No se cambia de candidato tras ver el holdout.
+  const selectionRuns = CRITERIA.minCalibration;
+  const selectionEnd = (origins[selectionRuns - 1] as number) + h.gap + h.horizon;
+  const selectionScores = (['snaive', 'weekday', 'ets'] as const).map((m) =>
+    score(
+      m,
+      runs[m].slice(0, selectionRuns),
+      m === 'snaive' ? null : runs.snaive.slice(0, selectionRuns),
+    ),
   );
-  // ponytail: se elige el candidato con menor MAE relativo en el mismo backtest con el que se
-  // publica (sesgo de selección leve con 2 candidatos). Con más candidatos, separar orígenes.
-  const candidates = scores.filter((x) => x.model !== 'snaive' && x.relMae !== null);
+  const evaluation = (m: ModelId) => runs[m].filter((r) => r.T >= selectionEnd);
+  const scores = (['snaive', 'weekday', 'ets'] as const).map((m) =>
+    score(m, evaluation(m), m === 'snaive' ? null : evaluation('snaive')),
+  );
+  const candidates = selectionScores.filter((x) => x.model !== 'snaive' && x.relMae !== null);
   const best = candidates.sort((a, b) => (a.relMae as number) - (b.relMae as number))[0];
   const chosen = best?.model ?? null;
+  const evaluatedScore = scores.find((s) => s.model === chosen);
   const calibration = chosen ? calibrate(runs[chosen], h) : null;
-  const final = chosen ? FORECASTERS[chosen](s.train, h.gap + h.horizon).slice(h.gap) : null;
-  const backtest = { origins: origins.length, scores, chosen, calibration };
-  const withBacktest = { ...base, backtest, runs: chosen ? runs[chosen] : null, final };
+  const adjusted = chosen
+    ? withEvents(
+        FORECASTERS[chosen](s.train, h.gap + h.horizon).slice(h.gap),
+        (i) => future[i] ?? null,
+        effects,
+      )
+    : null;
+  const backtest = {
+    origins: origins.length,
+    selectionOrigins: selectionRuns,
+    evaluationOrigins: evaluation('snaive').length,
+    selectionScores,
+    scores,
+    chosen,
+    calibration,
+  };
+  const withBacktest = {
+    ...base,
+    backtest,
+    runs: chosen ? runs[chosen] : null,
+    final: adjusted?.pred ?? null,
+  };
 
-  if (!best || (best.relMae as number) >= 1)
+  if (!evaluatedScore || evaluatedScore.relMae === null || evaluatedScore.relMae >= 1)
     return {
       ...withBacktest,
       status: 'not_published',
       reasons: [
-        `Ningún modelo supera al ingenuo estacional en el backtest (mejor MAE relativo: ${best?.relMae?.toFixed(2) ?? 'n/d'}; hace falta < 1).`,
+        `El modelo elegido con el pasado no supera al ingenuo estacional en la evaluación posterior (MAE relativo: ${evaluatedScore?.relMae?.toFixed(2) ?? 'n/d'}; hace falta < 1).`,
       ],
     };
   if (!calibration || calibration.evaluated < CRITERIA.minEvaluated)
@@ -681,22 +989,30 @@ export function forecastSeries(
       ],
     };
 
+  const a = adjusted as ReturnType<typeof withEvents>;
   const norm = Math.max(meanLast(s.train, 28), 1e-9);
-  const points = (final as number[]).map((p, i) => {
-    const [lo, hi] = calibration.daily[bucketOf(i)] as [number, number];
-    return { point: p, lower: Math.max(0, p + lo * norm), upper: Math.max(0, p + hi * norm) };
+  const points = a.pred.map((p, i) => {
+    const [lower, upper] = dayInterval(
+      p,
+      v(a.mult, i),
+      a.eventSd[i] ?? null,
+      calibration.daily[bucketOf(i)] as [number, number],
+      norm,
+    );
+    return { point: p, lower, upper, event: future[i]?.label ?? null };
   });
-  const sum = (final as number[]).reduce((a, b) => a + b, 0);
-  const [tlo, thi] = calibration.total ?? [0, 0];
   return {
     ...withBacktest,
     status: 'published',
     points,
-    total: {
-      point: sum,
-      lower: Math.max(0, sum + tlo * norm * h.horizon),
-      upper: Math.max(0, sum + thi * norm * h.horizon),
-    },
+    total: sumInterval(
+      a.pred,
+      a.eventSd,
+      a.eventKey,
+      () => true,
+      calibration.total ?? [0, 0],
+      norm,
+    ),
   };
 }
 

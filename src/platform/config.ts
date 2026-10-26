@@ -58,6 +58,11 @@ const schema = z
     /** Plazo de cada tick: menor que la duración máxima de la función en Vercel. */
     TICK_BUDGET_SECONDS: z.coerce.number().int().positive().default(240),
     TICK_CONCURRENCY: z.coerce.number().int().min(1).max(10).default(3),
+    /** Interruptor global de escritura: debe habilitarse explícitamente, también en el worker. */
+    META_WRITES_ENABLED: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((v) => v === 'true'),
     /** Asistente de IA (F4). Sin clave, sus rutas responden 503: nunca se simula una respuesta. */
     ANTHROPIC_API_KEY: optional(z.string().min(20)),
     AI_PROVIDER: z.enum(['anthropic']).default('anthropic'),

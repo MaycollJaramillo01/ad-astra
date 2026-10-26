@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { Navigate, NavLink, Route, Routes } from 'react-router';
 import type { Me } from '../../src/contracts.ts';
+import { ActionCenterPage } from './actions.tsx';
 import { ApiError, api, authClient, getActiveTenant, setActiveTenant } from './api.ts';
 import { AssistantPage } from './assistant.tsx';
 import { DashboardPage } from './dashboard.tsx';
@@ -33,6 +34,14 @@ export function App() {
         <Route path="/analitica/:level/:id" element={<DashboardPage role={active.role} />} />
         <Route path="/prevision" element={<ForecastPage />} />
         <Route path="/prevision/:level/:id" element={<ForecastPage />} />
+        <Route
+          path="/acciones"
+          element={<ActionCenterPage role={active.role} userId={me.data.user.id} />}
+        />
+        <Route
+          path="/acciones/:accountId"
+          element={<ActionCenterPage role={active.role} userId={me.data.user.id} />}
+        />
         <Route path="/asistente" element={<AssistantPage role={active.role} />} />
         <Route path="/clientes" element={<ClientsPage role={active.role} />} />
         <Route path="/cuentas" element={<AccountsPage role={active.role} />} />
@@ -91,6 +100,9 @@ function Shell({
           </NavLink>
           <NavLink to="/prevision" className={link}>
             Previsión
+          </NavLink>
+          <NavLink to="/acciones" className={link}>
+            Action Center
           </NavLink>
           {canUseAi && (
             <NavLink to="/asistente" className={link}>

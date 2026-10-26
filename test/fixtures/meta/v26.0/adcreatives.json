@@ -1,0 +1,43 @@
+[
+  {
+    "id": "100038",
+    "name": "[sanitized]",
+    "object_type": "PHOTO",
+    "body": "[sanitized]",
+    "call_to_action_type": "WHATSAPP_MESSAGE",
+    "thumbnail_url": "[sanitized]"
+  },
+  {
+    "id": "100039",
+    "name": "[sanitized]",
+    "object_type": "PHOTO",
+    "body": "[sanitized]",
+    "call_to_action_type": "WHATSAPP_MESSAGE",
+    "thumbnail_url": "[sanitized]"
+  },
+  {
+    "id": "100040",
+    "name": "[sanitized]",
+    "object_type": "PHOTO",
+    "body": "[sanitized]",
+    "call_to_action_type": "WHATSAPP_MESSAGE",
+    "thumbnail_url": "[sanitized]"
+  },
+  {
+    "id": "100041",
+    "name": "[sanitized]",
+    "object_type": "SHARE",
+    "title": "[sanitized]",
+    "body": "[sanitized]",
+    "call_to_action_type": "WHATSAPP_MESSAGE",
+    "thumbnail_url": "[sanitized]"
+  },
+  {
+    "id": "100042",
+    "name": "[sanitized]",
+    "object_type": "PHOTO",
+    "body": "[sanitized]",
+    "call_to_action_type": "WHATSAPP_MESSAGE",
+    "thumbnail_url": "[sanitized]"
+  }
+]

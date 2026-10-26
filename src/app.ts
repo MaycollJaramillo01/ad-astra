@@ -20,6 +20,8 @@ import { forecastingRoutes } from './modules/forecasting/routes.ts';
 import { insightsRoutes } from './modules/insights/routes.ts';
 import { connectionRoutes } from './modules/meta/connections.routes.ts';
 import { tickRoutes } from './modules/meta/tick.routes.ts';
+import { type ActionGateway, createActionGateway } from './modules/optimization/meta.ts';
+import { actionRoutes } from './modules/optimization/routes.ts';
 import { clientRoutes } from './modules/tenancy/clients.routes.ts';
 import { tenancyRoutes } from './modules/tenancy/routes.ts';
 import {
@@ -42,6 +44,8 @@ export interface AppDeps {
   authenticate?: Authenticate;
   /** Solo los tests lo sustituyen (proveedor guionizado); null desactiva la IA. */
   llm?: LlmProvider | null;
+  /** Solo tests: el ejecutor de producción usa Graph y el gobernador. */
+  actionGateway?: ActionGateway;
 }
 
 export async function buildApp({
@@ -50,6 +54,7 @@ export async function buildApp({
   logger,
   authenticate,
   llm,
+  actionGateway,
 }: AppDeps): Promise<FastifyInstance> {
   const app = Fastify({
     loggerInstance: (logger ?? createLogger(undefined, config.LOG_LEVEL)) as FastifyBaseLogger,
@@ -120,6 +125,11 @@ export async function buildApp({
   await app.register(auditEngineRoutes, { db });
   await app.register(insightsRoutes, { db });
   await app.register(forecastingRoutes, { db });
+  await app.register(actionRoutes, {
+    db,
+    config,
+    gateway: actionGateway ?? createActionGateway({ db, config, cipher }),
+  });
   await app.register(tickRoutes, { config, db, cipher });
   await app.register(aiRoutes, {
     db,

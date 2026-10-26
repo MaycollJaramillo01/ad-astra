@@ -4,6 +4,21 @@
 export const ROLES = ['owner', 'admin', 'manager', 'analyst', 'viewer'] as const;
 export type Role = (typeof ROLES)[number];
 
+export const ACTION_TYPES = [
+  'pause',
+  'activate',
+  'set_daily_budget',
+  'set_lifetime_budget',
+] as const;
+export const ACTION_STATES = [
+  'proposed',
+  'review',
+  'approved',
+  'executing',
+  'verifying',
+  'failed',
+  'closed',
+] as const;
 export const CONSENT_SCOPES = [
   'read_insights',
   'ai_processing',

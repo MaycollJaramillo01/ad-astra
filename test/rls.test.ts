@@ -32,7 +32,13 @@ beforeAll(async () => {
 });
 
 /** Tablas de historial: se insertan y se leen, nunca se cambian ni se borran. */
-const APPEND_ONLY = ['audit_log', 'finding_events', 'llm_usage'];
+const APPEND_ONLY = [
+  'audit_log',
+  'finding_events',
+  'llm_usage',
+  'action_events',
+  'action_approvals',
+];
 
 describe('cobertura de RLS', () => {
   it('toda tabla con tenant_id tiene RLS activado y forzado, con al menos una política', async () => {
@@ -79,7 +85,8 @@ describe('cobertura de RLS', () => {
     const { rows } = await db.execute<{ key: string }>(
       sql`select distinct jsonb_object_keys(payload) as key from jobs`,
     );
-    for (const { key } of rows) expect(key, key).toMatch(/^(adAccountId|connectionId|monthsDone)$/);
+    for (const { key } of rows)
+      expect(key, key).toMatch(/^(adAccountId|connectionId|monthsDone|actionId)$/);
   });
 
   it('el rol de la aplicación no puede saltarse RLS ni crear tablas', async () => {

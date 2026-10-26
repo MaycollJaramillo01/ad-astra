@@ -393,6 +393,8 @@ flowchart LR
 
 ### 6.9 Centro de optimización (F5)
 
+> Implementación vigente: [Action Center](ACTION_CENTER.md), con propuestas/revisiones separadas, al menos un aprobador distinto del proponente, dos en activaciones y cambios presupuestarios desde umbral, políticas versionadas y escrituras desactivadas por defecto. La verificación es por lectura y un envío ambiguo no se repite. El rollback es una propuesta nueva. El diagrama siguiente conserva el diseño inicial; los nombres y transiciones ejecutados están en la especificación vigente.
+
 ```mermaid
 stateDiagram-v2
   [*] --> borrador
