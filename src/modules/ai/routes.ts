@@ -102,6 +102,7 @@ export async function aiRoutes(
       }
       return {
         enabled: llm !== null && unavailableReason === null,
+        configured: llm !== null,
         unavailableReason,
         costBasis:
           llm?.costBasis ??

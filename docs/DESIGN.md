@@ -29,3 +29,26 @@ La interfaz mantiene un lienzo claro con navegación oscura independientemente d
 El rediseño conserva los cálculos, periodos en la URL, comparaciones, exportaciones, ausencia de datos, madurez y advertencias existentes. Las minigráficas usan las series del informe, respetando los huecos de datos. La ilustración inicial es decorativa y no muestra cifras de rendimiento.
 
 Se revisan capturas de escritorio y móvil y se ejecutan los flujos E2E de autenticación, permisos, monitoreo e informes. Las comprobaciones automáticas con axe cubren WCAG 2 A/AA y 2.1 AA en las vistas de entrada, analítica, inicio sin cuentas y navegación. Estas comprobaciones no sustituyen una auditoría manual completa con tecnologías de asistencia.
+
+## Asistente y prioridades de revisión
+
+El asistente abre con «Qué revisar primero», seguido del espacio para preparar consultas. La
+lista reutiliza la prioridad del motor de auditoría, agrupa la misma regla por cuenta y muestra
+un máximo de cinco temas a partir de los cincuenta hallazgos abiertos con mayor prioridad del
+alcance autorizado. El contexto de cuenta filtra la selección; las otras vistas indican que
+la selección corresponde a la cartera. Los permisos y el aislamiento se aplican antes del límite.
+
+Cada tema muestra severidad, cuenta, siguiente paso, motivo, confianza, periodo y enlace a su
+evidencia. Un hallazgo con más de una semana desde su última detección avisa que debe confirmarse
+su vigencia. No se suman monedas ni se estiman ahorros. Las prioridades no se presentan como mejoras
+causales. El recuento de señales describe la selección, no una cifra global oculta por el límite.
+
+Cuando no hay hallazgos abiertos, la guía propone revisar medición, gasto y entrega, en ese orden,
+identificándolos como sugerencias generales. Una carga fallida muestra su propio estado y permite
+reintentar; no se presenta como ausencia de problemas. Estas lecturas no requieren una llamada LLM.
+
+El historial está a la derecha en escritorio y después del contenido en móvil. Modelo, presupuesto
+y estado técnico se consultan en un desplegable. «Preparar consulta» rellena y enfoca el borrador,
+sin enviar datos. En modo de solo lectura se puede preparar texto y abrir evidencias; el botón
+de envío y Ctrl/Cmd Enter respetan el bloqueo. Las pruebas de navegador comprueban agrupación,
+enlaces, borradores, pausa, estados vacíos y errores, WCAG AA y ausencia de desbordamiento móvil.

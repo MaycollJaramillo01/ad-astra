@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
+import type { Finding } from '../../src/contracts.ts';
 
 type Fixture = {
   tenantId: string;
@@ -236,4 +237,136 @@ test('viewer puede leer pero no configurar ni consultar operaciones', async ({ c
       await context.request.get('/v1/operations', { headers: { 'x-tenant-id': f.tenantId } })
     ).status(),
   ).toBe(403);
+});
+
+test('asistente prioriza hallazgos y permite preparar preguntas con la IA en pausa', async ({
+  page,
+}) => {
+  let submitted = 0;
+  await page.route('**/v1/ai/ask', async (route) => {
+    submitted++;
+    await route.abort();
+  });
+  await page.route('**/v1/ai/status', (route) =>
+    route.fulfill({
+      json: {
+        enabled: false,
+        configured: true,
+        provider: 'nvidia',
+        model: 'nvidia/nemotron-3.5-super-vl-120b-a12b',
+        effort: 'low',
+        costBasis: 'budget_estimate',
+        unavailableReason: 'Detalle técnico de solo lectura.',
+        budgets: {
+          monthlyUsd: 100,
+          spentMonthUsd: 0,
+          userDailyUsd: 10,
+          spentTodayUsd: 0,
+          perQuestionUsd: 1,
+        },
+      },
+    }),
+  );
+  const row: Finding = {
+    id: crypto.randomUUID(),
+    adAccountId: f.accountId,
+    kind: 'audit',
+    ruleId: 'R-EFF-002',
+    ruleVersion: 1,
+    entityLevel: 'campaign',
+    entityMetaId: f.campaignId,
+    severity: 'high',
+    confidence: '.94',
+    priority: '.95',
+    impact: null,
+    evidence: null,
+    recommendationKey: 'review',
+    status: 'open',
+    firstSeenAt: new Date().toISOString(),
+    lastSeenAt: new Date().toISOString(),
+    decisionReason: null,
+    category: 'efficiency',
+    profile: 'leads',
+    explanation:
+      'La señal aparece en el periodo observado. Comprueba la medición antes de cambiar la inversión.',
+    recommendationText:
+      'Comprueba el gasto y los resultados de esta campaña antes de ajustar el presupuesto.',
+    engineVersion: 'test',
+    windowStart: '2026-10-14',
+    windowEnd: '2026-10-20',
+    resolvedAt: null,
+  };
+  await page.route('**/v1/findings?*', (route) =>
+    route.fulfill({
+      json: [
+        row,
+        { ...row, id: crypto.randomUUID(), priority: '.8' },
+        {
+          ...row,
+          id: crypto.randomUUID(),
+          ruleId: 'R-TRACK-001',
+          priority: '.6',
+          severity: 'medium',
+          recommendationText:
+            'Contrasta los eventos registrados con la fuente de leads antes de comparar.',
+        },
+      ],
+    }),
+  );
+  await page.setViewportSize({ width: 1440, height: 1050 });
+  await page.goto('/asistente');
+  await expect(page.getByRole('heading', { name: 'Qué revisar primero' })).toBeVisible();
+  await expect(page.getByText('Consultas en pausa', { exact: true })).toBeVisible();
+  const topics = page.getByRole('list', { name: 'Temas por prioridad' }).locator(':scope > li');
+  await expect(topics).toHaveCount(2);
+  await expect(topics.first()).toContainText('2 señales agrupadas');
+  await expect(topics.first()).toContainText(row.recommendationText as string);
+  await expect(topics.first().getByRole('link', { name: 'Revisar evidencia' })).toHaveAttribute(
+    'href',
+    `/analitica/campana/${f.campaignId}`,
+  );
+  await expect(
+    page.getByText('Detalle técnico de solo lectura.', { exact: false }),
+  ).not.toBeVisible();
+  expect(
+    (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
+      .violations,
+  ).toEqual([]);
+  await page.screenshot({ path: 'spike-output/readiness/assistant-desktop.png', fullPage: true });
+  await topics.first().getByRole('button', { name: 'Preparar consulta' }).click();
+  const input = page.getByRole('textbox', { name: 'Pregunta para el asistente' });
+  await expect(input).toBeFocused();
+  await expect(input).toHaveValue(/Revisa los hallazgos/);
+  await expect(page.getByRole('button', { name: 'Consultar', exact: true })).toBeDisabled();
+  await input.press('ControlOrMeta+Enter');
+  expect(submitted).toBe(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  expect(
+    (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
+      .violations,
+  ).toEqual([]);
+  await page.screenshot({ path: 'spike-output/readiness/assistant-mobile.png', fullPage: true });
+});
+
+test('asistente diferencia guía, ausencia de hallazgos y error de consulta', async ({ page }) => {
+  await page.route('**/v1/findings?*', (route) => route.fulfill({ json: [] }));
+  await page.goto('/asistente');
+  await expect(
+    page.getByText('Guía de revisión sugerida · no son problemas detectados'),
+  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Medición y calidad de datos' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Gasto y costo por resultado' })).toBeVisible();
+  await page.getByRole('button', { name: 'Resumen de rendimiento' }).click();
+  await expect(page.getByRole('textbox', { name: 'Pregunta para el asistente' })).toHaveValue(
+    /Resume el rendimiento/,
+  );
+  await page.route('**/v1/findings?*', (route) =>
+    route.fulfill({ status: 503, json: { title: 'No disponible' } }),
+  );
+  await page.reload();
+  await expect(page.getByText('No pudimos cargar las prioridades.', { exact: true })).toBeVisible();
+  await expect(
+    page.getByText('No hay hallazgos abiertos en esta selección.', { exact: true }),
+  ).toHaveCount(0);
 });

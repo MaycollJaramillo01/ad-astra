@@ -183,6 +183,8 @@ export const FindingDto = z.object({
 export const FindingsQuery = z.object({
   status: z.enum(FINDING_STATUSES).optional(),
   adAccountId: z.uuid().optional(),
+  /** Selección acotada para la bandeja de revisión; los consumidores anteriores conservan su lista. */
+  limit: z.coerce.number().int().min(1).max(100).optional(),
 });
 export const FindingDecisionBody = z.object({
   status: z.enum(['acknowledged', 'dismissed', 'resolved']),
@@ -478,6 +480,7 @@ export const AiTraceDto = z.object({
 });
 export const AiStatusDto = z.object({
   enabled: z.boolean(),
+  configured: z.boolean(),
   unavailableReason: z.string().nullable(),
   costBasis: z.enum(['published_tariff', 'budget_estimate']),
   provider: z.string(),

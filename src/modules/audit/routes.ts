@@ -80,9 +80,9 @@ export async function auditRoutes(fastify: FastifyInstance, { db }: { db: Db }) 
     },
     async (request) => {
       const ctx = tenantOf(request);
-      const { status, adAccountId } = request.query;
-      const rows = await withContext(db, ctx, (tx) =>
-        tx
+      const { status, adAccountId, limit } = request.query;
+      const rows = await withContext(db, ctx, (tx) => {
+        const query = tx
           .select({ f: findings })
           .from(findings)
           .innerJoin(adAccounts, eq(adAccounts.id, findings.adAccountId))
@@ -93,8 +93,9 @@ export async function auditRoutes(fastify: FastifyInstance, { db }: { db: Db }) 
               adAccountId ? eq(findings.adAccountId, adAccountId) : undefined,
             ),
           )
-          .orderBy(desc(findings.priority), desc(findings.lastSeenAt)),
-      );
+          .orderBy(desc(findings.priority), desc(findings.lastSeenAt), findings.id);
+        return limit ? query.limit(limit) : query;
+      });
       return rows.map((r) => findingDto(r.f));
     },
   );

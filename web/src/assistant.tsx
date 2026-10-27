@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import type {
   AiAnswer,
@@ -8,11 +8,15 @@ import type {
   AiMessage,
   AiStatus,
   AiTurn,
+  Finding,
   Recommendation,
 } from '../../src/contracts.ts';
 import type { Role } from '../../src/domain.ts';
 import { METRICS, type NodeLevel, type Tone } from '../../src/modules/insights/catalog.ts';
 import { ApiError, api } from './api.ts';
+import { AssistantPriorities } from './assistant-priorities.tsx';
+import { Icon } from './icons.tsx';
+import './assistant.css';
 import { formatDateTime } from './format.ts';
 import { ErrorBox } from './pages.tsx';
 import { ToneIcon } from './ui.tsx';
@@ -70,11 +74,14 @@ export function AssistantPage({ role }: { role: Role }) {
   const queryClient = useQueryClient();
   const [sp, setSp] = useSearchParams();
   const conversationId = sp.get('c');
-  const viewLevel = sp.get('nivel') as NodeLevel | null;
+  const rawLevel = sp.get('nivel');
+  const viewLevel = ['org', 'client', 'account', 'campaign', 'adset', 'ad'].includes(rawLevel ?? '')
+    ? (rawLevel as NodeLevel)
+    : null;
   const view = viewLevel ? { level: viewLevel, id: sp.get('id') } : null;
   const [question, setQuestion] = useState('');
   const inputId = useId();
-
+  const input = useRef<HTMLTextAreaElement>(null);
   const status = useQuery({
     queryKey: ['ai-status'],
     queryFn: () => api<AiStatus>('/v1/ai/status'),
@@ -105,156 +112,354 @@ export function AssistantPage({ role }: { role: Role }) {
       void queryClient.invalidateQueries({ queryKey: ['ai-status'] });
     },
   });
-
   if (!USERS.includes(role))
     return <p className="text-sm">Tu rol no permite usar el asistente de IA.</p>;
-
+  const canSend = status.data?.enabled === true && !ask.isPending;
+  const admin = role === 'owner' || role === 'admin';
   const send = () => {
     const q = question.trim();
-    if (q.length >= 3 && !ask.isPending) ask.mutate(q);
+    if (q.length >= 3 && canSend) ask.mutate(q);
+  };
+  const prepare = (text: string, finding?: Finding) => {
+    if (ask.isPending) return;
+    setQuestion(text);
+    ask.reset();
+    if (finding)
+      setSp((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('c');
+        next.set('nivel', finding.entityLevel);
+        next.set(
+          'id',
+          finding.entityLevel === 'account' ? finding.adAccountId : finding.entityMetaId,
+        );
+        return next;
+      });
+    input.current?.focus({ preventScroll: true });
+    input.current?.scrollIntoView({
+      block: 'center',
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        ? 'instant'
+        : 'smooth',
+    });
   };
   const budgets = status.data?.budgets;
+  const newUrl = view
+    ? `/asistente?nivel=${view.level}${view.id ? `&id=${encodeURIComponent(view.id)}` : ''}`
+    : '/asistente';
 
   return (
-    <div className="grid gap-5 md:grid-cols-[15rem_minmax(0,1fr)]">
-      <aside aria-labelledby="conversaciones" className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h2 id="conversaciones" className="text-sm font-semibold">
-            Conversaciones
-          </h2>
-          <Link
-            className="text-sm underline"
-            to={
-              view
-                ? `/asistente?nivel=${view.level}${view.id ? `&id=${view.id}` : ''}`
-                : '/asistente'
-            }
-          >
-            Nueva
-          </Link>
+    <div className="assistant-workspace">
+      <header className="assistant-page-header">
+        <div>
+          <h1>Asistente de IA</h1>
+          <p>Encuentra qué revisar primero. Entiende la evidencia antes de decidir.</p>
         </div>
-        <ul className="space-y-1 text-sm">
-          {list.data?.map((c) => (
-            <li key={c.id}>
-              <Link
-                to={`/asistente?c=${c.id}`}
-                aria-current={c.id === conversationId ? 'page' : undefined}
-                className={`block truncate rounded px-2 py-1 ${c.id === conversationId ? 'bg-gray-100 dark:bg-gray-800' : 'hover:bg-gray-50 dark:hover:bg-gray-900'}`}
-              >
-                {c.title}
-              </Link>
-            </li>
-          ))}
-          {list.data?.length === 0 && <li className="text-gray-500">Aún no hay conversaciones.</li>}
-        </ul>
-      </aside>
-
-      <section aria-labelledby="asistente" className="min-w-0 space-y-4">
-        <header className="space-y-1">
-          <h1 id="asistente" className="text-xl font-semibold">
-            Asistente de IA
-          </h1>
-          <p className="text-sm text-gray-500">
-            Responde con los datos sincronizados y los hallazgos de la auditoría. Solo consulta: no
-            modifica campañas; sus recomendaciones pasan por aprobación.
-            {view &&
-              ` Contexto: ${ENTITY[view.level as keyof typeof ENTITY] ?? view.level}${view.id ? ` ${view.id}` : ''}.`}
-          </p>
-          {budgets && (
-            <p className="text-xs text-gray-500">
-              Uso de presupuesto de IA este mes: {usd(budgets.spentMonthUsd)} de{' '}
-              {usd(budgets.monthlyUsd)} · tuyo hoy: {usd(budgets.spentTodayUsd)} de{' '}
-              {usd(budgets.userDailyUsd)} · modelo {status.data?.model}
+        <span
+          className={`assistant-availability ${status.data?.enabled ? 'is-ready' : ''}`}
+          role="status"
+        >
+          <Icon name={status.data?.enabled ? 'assistant' : 'lock'} size={15} />
+          {status.isPending
+            ? 'Comprobando disponibilidad'
+            : status.error
+              ? 'Estado no disponible'
+              : status.data?.enabled
+                ? 'Listo para consultar'
+                : status.data?.configured
+                  ? 'Consultas en pausa'
+                  : 'IA pendiente de configurar'}
+        </span>
+      </header>
+      {status.data && !status.data.enabled && (
+        <div className="assistant-availability-note">
+          <Icon name="lock" size={19} />
+          <div>
+            <strong>
+              {status.data.configured
+                ? 'Puedes seguir revisando tus campañas.'
+                : 'Empieza por los hallazgos de tu cartera.'}
+            </strong>
+            <p>
+              {status.data.configured
+                ? 'La IA está en pausa. Puedes abrir las prioridades y revisar sus evidencias.'
+                : 'La IA todavía no está configurada. La guía y los hallazgos disponibles te ayudan a preparar la siguiente revisión.'}
+            </p>
+          </div>
+          {admin && (
+            <Link to="/operaciones" className="assistant-text-link">
+              Revisar estado <Icon name="arrow" size={15} />
+            </Link>
+          )}
+        </div>
+      )}
+      {status.error && (
+        <div className="assistant-status-error">
+          <ErrorBox error={status.error} />
+          <button type="button" onClick={() => void status.refetch()}>
+            Comprobar de nuevo
+          </button>
+        </div>
+      )}
+      <div className="assistant-layout">
+        <div className="assistant-main">
+          {detail.error && <ErrorBox error={detail.error} />}
+          {conversationId && detail.isPending && (
+            <p className="assistant-loading" role="status">
+              Cargando conversación…
             </p>
           )}
-          {status.data?.costBasis === 'budget_estimate' && (
-            <p className="text-xs text-gray-500">
-              NVIDIA · valoración interna para controlar el presupuesto; no representa cargos ni una
-              tarifa de NVIDIA.
-            </p>
-          )}
-        </header>
-
-        {status.data && !status.data.enabled && (
-          <p
-            role="status"
-            className="rounded border border-gray-300 p-3 text-sm dark:border-gray-700"
-          >
-            {status.data.unavailableReason ?? 'El asistente no está disponible en este entorno.'}
-          </p>
-        )}
-        {detail.error && <ErrorBox error={detail.error} />}
-
-        <ol className="space-y-4">
-          {detail.data?.messages.map((m) =>
-            m.role === 'user' ? (
-              <li
-                key={m.id}
-                className="ml-auto max-w-prose rounded-lg bg-gray-100 px-3 py-2 text-sm dark:bg-gray-800"
-              >
-                <span className="sr-only">Tu pregunta: </span>
-                {m.content}
-              </li>
-            ) : (
-              <li key={m.id}>
-                <AnswerCard
-                  message={m}
-                  onFollowUp={setQuestion}
-                  canPropose={USERS.includes(role)}
-                />
-              </li>
-            ),
+          {!!detail.data?.messages.length && (
+            <ol className="assistant-transcript" aria-label="Mensajes de la conversación">
+              {detail.data.messages.map((m) =>
+                m.role === 'user' ? (
+                  <li key={m.id} className="assistant-user-message">
+                    <span className="assistant-message-label">Tu pregunta</span>
+                    <p>{m.content}</p>
+                  </li>
+                ) : (
+                  <li key={m.id}>
+                    <AnswerCard
+                      message={m}
+                      onFollowUp={prepare}
+                      canPropose={USERS.includes(role)}
+                    />
+                  </li>
+                ),
+              )}
+            </ol>
           )}
           {ask.isPending && (
-            <li className="ml-auto max-w-prose rounded-lg bg-gray-100 px-3 py-2 text-sm dark:bg-gray-800">
-              {ask.variables}
-            </li>
+            <div className="assistant-pending" role="status">
+              <Icon name="assistant" size={19} />
+              <div>
+                <strong>Consultando datos y verificando la respuesta</strong>
+                <p>El análisis citará su evidencia y señalará las limitaciones.</p>
+              </div>
+            </div>
           )}
-        </ol>
-        <p aria-live="polite" className="text-sm text-gray-500">
-          {ask.isPending
-            ? 'Analizando: consulta los datos y verifica cada cifra antes de responder…'
-            : ''}
-        </p>
-        {ask.error && <ErrorBox error={ask.error} />}
-
-        <form
-          className="space-y-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            send();
-          }}
-        >
-          <label htmlFor={inputId} className="block text-sm font-medium">
-            Pregunta
-          </label>
-          <textarea
-            id={inputId}
-            value={question}
-            maxLength={2000}
-            rows={3}
-            disabled={status.data?.enabled === false}
-            placeholder="P. ej.: ¿por qué subió el costo por resultado esta semana?"
-            className="w-full rounded border border-gray-300 bg-transparent p-2 text-sm dark:border-gray-700"
-            onChange={(e) => setQuestion(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) send();
-            }}
-          />
-          <div className="flex items-center gap-3">
-            <button
-              type="submit"
-              disabled={
-                ask.isPending || question.trim().length < 3 || status.data?.enabled === false
-              }
-              className="rounded bg-gray-900 px-4 py-1.5 text-sm text-white disabled:opacity-50 dark:bg-white dark:text-gray-900"
+          {ask.error && <ErrorBox error={ask.error} />}
+          {!conversationId && (
+            <AssistantPriorities
+              busy={ask.isPending}
+              onPrepare={prepare}
+              accountId={viewLevel === 'account' ? (view?.id ?? null) : null}
+            />
+          )}
+          <section className="assistant-composer" aria-labelledby="composer-heading">
+            <div className="assistant-composer-heading">
+              <span className="assistant-symbol">
+                <Icon name="assistant" size={23} />
+              </span>
+              <div>
+                <h2 id="composer-heading">
+                  {conversationId
+                    ? 'Continúa el análisis'
+                    : '¿Qué quieres entender de tus campañas?'}
+                </h2>
+                <p>
+                  Pregunta por un cambio, contrasta una hipótesis o prepara tu próxima revisión.
+                </p>
+              </div>
+            </div>
+            {view && (
+              <p className="assistant-context">
+                Contexto de revisión:{' '}
+                {ENTITY[view.level as keyof typeof ENTITY] ??
+                  (view.level === 'client' ? 'cliente' : 'cartera')}{' '}
+              </p>
+            )}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                send();
+              }}
             >
-              Preguntar
-            </button>
-            <span className="text-xs text-gray-500">Ctrl + Enter para enviar</span>
-          </div>
-        </form>
-      </section>
+              <label htmlFor={inputId} className="sr-only">
+                Pregunta para el asistente
+              </label>
+              <textarea
+                ref={input}
+                id={inputId}
+                value={question}
+                maxLength={2000}
+                disabled={ask.isPending}
+                rows={3}
+                placeholder="Por ejemplo: ¿qué cambió en el costo por lead y qué debería revisar?"
+                onChange={(e) => setQuestion(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault();
+                    send();
+                  }
+                }}
+                aria-describedby={`${inputId}-help`}
+              />
+              <div className="assistant-composer-footer">
+                <span id={`${inputId}-help`}>
+                  {status.data?.enabled
+                    ? 'Ctrl + Enter para enviar'
+                    : 'Puedes preparar tu pregunta mientras se habilitan las consultas.'}
+                </span>
+                <button
+                  className="assistant-send"
+                  type="submit"
+                  disabled={!canSend || question.trim().length < 3}
+                >
+                  Consultar <Icon name="arrow" size={16} />
+                </button>
+              </div>
+            </form>
+            {!conversationId && (
+              <fieldset className="assistant-prompts" aria-label="Preguntas sugeridas">
+                <button
+                  type="button"
+                  disabled={ask.isPending}
+                  onClick={() =>
+                    prepare(
+                      'Resume el rendimiento del último periodo frente al anterior. Separa monedas y objetivos y señala los límites de los datos.',
+                    )
+                  }
+                >
+                  Resumen de rendimiento
+                </button>
+                <button
+                  type="button"
+                  disabled={ask.isPending}
+                  onClick={() =>
+                    prepare(
+                      '¿Qué componentes coinciden con el cambio del costo por resultado? Usa la descomposición disponible y plantea hipótesis, sin atribuir causalidad.',
+                    )
+                  }
+                >
+                  Cambios de costo
+                </button>
+                <button
+                  type="button"
+                  disabled={ask.isPending}
+                  onClick={() =>
+                    prepare(
+                      '¿Qué hallazgos debería revisar primero? Explica la prioridad, la evidencia y qué debo comprobar antes de decidir.',
+                    )
+                  }
+                >
+                  Próxima revisión
+                </button>
+              </fieldset>
+            )}
+            <p className="assistant-composer-trust">
+              <Icon name="lock" size={12} />
+              Solo consulta datos autorizados. Las recomendaciones requieren tu revisión.
+            </p>
+          </section>
+        </div>
+        <aside className="assistant-side" aria-label="Conversaciones y detalles del asistente">
+          <section className="assistant-history" aria-labelledby="conversaciones">
+            <div className="assistant-side-heading">
+              <h2 id="conversaciones">Conversaciones</h2>
+              <Link
+                to={newUrl}
+                onClick={(e) => {
+                  if (ask.isPending) {
+                    e.preventDefault();
+                    return;
+                  }
+                  setQuestion('');
+                  ask.reset();
+                }}
+                aria-label="Nueva conversación"
+              >
+                Nueva <span aria-hidden="true">+</span>
+              </Link>
+            </div>
+            {list.isPending && <p className="assistant-side-copy">Cargando conversaciones…</p>}
+            {list.error && (
+              <p className="assistant-side-copy" role="alert">
+                No pudimos cargar el historial.{' '}
+                <button type="button" onClick={() => void list.refetch()}>
+                  Reintentar
+                </button>
+              </p>
+            )}
+            {list.data?.length === 0 && (
+              <div className="assistant-history-empty">
+                <Icon name="assistant" size={24} />
+                <strong>Tu análisis, en un solo lugar</strong>
+                <p>Las consultas que envíes aparecerán aquí para que puedas retomarlas.</p>
+              </div>
+            )}
+            {!!list.data?.length && (
+              <ul>
+                {list.data.map((c) => (
+                  <li key={c.id}>
+                    <Link
+                      to={`/asistente?c=${c.id}`}
+                      aria-current={c.id === conversationId ? 'page' : undefined}
+                    >
+                      <span>{c.title}</span>
+                      <time dateTime={c.updatedAt}>{formatDateTime(c.updatedAt)}</time>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+          <section className="assistant-review-help">
+            <Icon name="action" size={22} />
+            <h2>De la señal a la decisión</h2>
+            <p>
+              Revisa la evidencia, confirma su vigencia y registra tu decisión. Una recomendación no
+              ejecuta cambios en Meta.
+            </p>
+            <Link to="/acciones" className="assistant-text-link">
+              Abrir Action Center <Icon name="arrow" size={15} />
+            </Link>
+          </section>
+          {status.data && (
+            <details className="assistant-service">
+              <summary>
+                Modelo y presupuesto <Icon name="down" size={14} />
+              </summary>
+              <div>
+                <p>
+                  {status.data.provider === 'nvidia' ? 'NVIDIA NIM' : 'Anthropic'} ·{' '}
+                  {status.data.configured ? 'Configurado' : 'Sin clave'}
+                </p>
+                <p className="assistant-model">{status.data.model}</p>
+                {budgets && (
+                  <dl>
+                    <div>
+                      <dt>Organización, este mes</dt>
+                      <dd>
+                        {usd(budgets.spentMonthUsd)} / {usd(budgets.monthlyUsd)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Tu uso hoy</dt>
+                      <dd>
+                        {usd(budgets.spentTodayUsd)} / {usd(budgets.userDailyUsd)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Límite por pregunta</dt>
+                      <dd>{usd(budgets.perQuestionUsd)}</dd>
+                    </div>
+                  </dl>
+                )}
+                {status.data.costBasis === 'budget_estimate' && (
+                  <p>
+                    Valoración interna para controlar el presupuesto. No representa cargos ni una
+                    tarifa de NVIDIA.
+                  </p>
+                )}
+                {status.data.unavailableReason && (
+                  <p>Estado técnico: {status.data.unavailableReason}</p>
+                )}
+              </div>
+            </details>
+          )}
+        </aside>
+      </div>
     </div>
   );
 }
