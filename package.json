@@ -33,7 +33,7 @@
     "specs:update": "node scripts/update-meta-specs.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^1.2.0",
+    "@anthropic-ai/sdk": "^1.3.0",
     "@fastify/helmet": "^13.2.0",
     "@fastify/rate-limit": "^11.2.1",
     "@fastify/swagger": "^9.9.2",
