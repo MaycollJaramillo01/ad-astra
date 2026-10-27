@@ -255,7 +255,10 @@ describe('backtest, calibración y publicación', () => {
     expect(f.total?.point).toBeLessThan(28 * 300 * 1.15);
   });
 
-  it('en promedio la cobertura del 80 % está calibrada en datos sintéticos', () => {
+  // Monte Carlo de 12 semillas: no es una prueba de latencia; runners compartidos requieren margen.
+  it('en promedio la cobertura del 80 % está calibrada en datos sintéticos', {
+    timeout: 20000,
+  }, () => {
     const coverage: number[] = [];
     for (let seed = 1; seed <= 12; seed++) {
       const h = prepareHistory(stable(seed * 31), UNTIL);
