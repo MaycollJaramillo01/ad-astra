@@ -95,9 +95,15 @@ export function Shell({
     if (menu) {
       const previousOverflow = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
-      const focusFrame = requestAnimationFrame(() =>
-        sidebar.current?.querySelector<HTMLButtonElement>('.sidebar-close')?.focus(),
-      );
+      const panel = sidebar.current;
+      const focusPanel = () => {
+        if (!panel?.contains(document.activeElement))
+          panel?.querySelector<HTMLButtonElement>('.sidebar-close')?.focus({ preventScroll: true });
+      };
+      const focusFrame = requestAnimationFrame(focusPanel);
+      // Al entrar desde visibility:hidden, el primer frame aún puede impedir el foco.
+      // Con movimiento reducido el primer frame basta; si hay transición, se reintenta al finalizar.
+      panel?.addEventListener('transitionend', focusPanel);
       const onKeyDown = (event: KeyboardEvent) => {
         if (dialog.current?.open) return;
         if (event.key === 'Escape') {
@@ -125,6 +131,7 @@ export function Shell({
       window.addEventListener('resize', onResize);
       return () => {
         cancelAnimationFrame(focusFrame);
+        panel?.removeEventListener('transitionend', focusPanel);
         document.body.style.overflow = previousOverflow;
         window.removeEventListener('keydown', onKeyDown);
         window.removeEventListener('resize', onResize);

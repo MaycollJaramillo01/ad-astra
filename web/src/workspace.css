@@ -363,6 +363,10 @@
 .view-content table {
   font-size: 12px;
 }
+.view-content .overflow-x-auto {
+  /* Contiene también los captions sr-only posicionados de las tablas. */
+  position: relative;
+}
 .view-content thead {
   background: #faf9f7;
   color: #716973;
