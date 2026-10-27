@@ -1,0 +1,11 @@
+[extend]
+useDefault = true
+
+# Credencial deliberadamente inválida del test de rechazo; nunca se provisiona una cuenta con ella.
+# Ruta Y valor exactos: no se excluye ningún archivo ni regla completa.
+[[allowlists]]
+description = "Contraseña incorrecta sintética en test de autenticación"
+condition = "AND"
+paths = ['^test/password-auth\.test\.ts$']
+regexTarget = "secret"
+regexes = ['^incorrecta-123456789$']
