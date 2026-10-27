@@ -528,9 +528,10 @@ describe('errores de Meta', () => {
     const events = await s.q((tx) =>
       tx.select().from(auditLog).where(eq(auditLog.targetId, s.connectionId)),
     );
-    expect(events.map((e) => e.action)).toEqual([
-      'meta_connection.validated',
+    // La consulta no solicita un orden: se comprueba la bitácora completa, no el orden físico de PostgreSQL.
+    expect(events.map((e) => e.action).sort()).toEqual([
       'meta_connection.invalidated',
+      'meta_connection.validated',
     ]);
     expect((await s.jobs()).filter((j) => j.status === 'queued')).toHaveLength(0);
 

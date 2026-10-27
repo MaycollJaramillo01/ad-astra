@@ -1,5 +1,7 @@
 # Despliegue inicial de staging — 2026-10-26
 
+Registro histórico. La configuración posterior de un proyecto y una base de producción separados se documenta en [DEPLOYMENT_2026-10-27.md](DEPLOYMENT_2026-10-27.md); no implica una liberación operativa de producción.
+
 **Actualización posterior a la captura de configuración pendiente:** Neon de staging está provisionado con roles separados y migraciones 0016. El usuario confirmó que no tiene Workspace; el nuevo acceso usa `AUTH_MODE=password` y una cuenta inicial invitada. Controles en [AUTHENTICATION.md](AUTHENTICATION.md). Los pendientes OAuth de este registro original corresponden al modo Workspace y no impiden el nuevo modo explícito de credenciales.
 
 Repositorio: [MaycollJaramillo01/ad-astra](https://github.com/MaycollJaramillo01/ad-astra), rama `main`. El primer commit publicado en esta entrega es `f801ab2`, con monitoreo y controles operativos. Las correcciones de despliegue se publican después sobre esa misma rama.
