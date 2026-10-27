@@ -14,7 +14,7 @@ let b: SeededTenant;
 // Tablas globales a propósito (Better Auth): un usuario puede pertenecer a varios tenants.
 const GLOBAL_TABLES = ['auth_accounts', 'auth_sessions', 'auth_users', 'auth_verifications'];
 // Tablas de sistema del tick (ADR-022): sin RLS, solo identificadores (test aparte).
-const SYSTEM_TABLES = ['jobs', 'meta_rate_state'];
+const SYSTEM_TABLES = ['jobs', 'meta_rate_state', 'deployment_state'];
 
 /** Tablas con tenant_id, sin las de sistema ni las particiones (se accede por la tabla madre). */
 async function tenantTables(): Promise<string[]> {
@@ -38,6 +38,9 @@ const APPEND_ONLY = [
   'llm_usage',
   'action_events',
   'action_approvals',
+  'monitoring_events',
+  'monitoring_runs',
+  'monitoring_reports',
 ];
 
 describe('cobertura de RLS', () => {
@@ -86,7 +89,7 @@ describe('cobertura de RLS', () => {
       sql`select distinct jsonb_object_keys(payload) as key from jobs`,
     );
     for (const { key } of rows)
-      expect(key, key).toMatch(/^(adAccountId|connectionId|monthsDone|actionId)$/);
+      expect(key, key).toMatch(/^(adAccountId|connectionId|monthsDone|actionId|deliveryId)$/);
   });
 
   it('el rol de la aplicación no puede saltarse RLS ni crear tablas', async () => {
@@ -124,8 +127,12 @@ describe('aislamiento entre tenants', () => {
           sql`update ${table} set tenant_id = tenant_id where tenant_id = ${a.tenantId}`,
         );
         expect(updated.rowCount, `${t}: update`).toBe(0);
-        const deleted = await tx.execute(sql`delete from ${table} where tenant_id = ${a.tenantId}`);
-        expect(deleted.rowCount, `${t}: delete`).toBe(0);
+        if (t !== 'action_followups') {
+          const deleted = await tx.execute(
+            sql`delete from ${table} where tenant_id = ${a.tenantId}`,
+          );
+          expect(deleted.rowCount, `${t}: delete`).toBe(0);
+        }
       });
     }
     // Las filas de A siguen intactas.

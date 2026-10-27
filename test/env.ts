@@ -6,6 +6,7 @@ const host = 'localhost:55432/ad_astra_test';
 
 export const testEnv = {
   NODE_ENV: 'test',
+  APP_ENV: 'test',
   LOG_LEVEL: 'silent',
   APP_ORIGIN: 'http://localhost:5173',
   DATABASE_URL: process.env.TEST_DATABASE_URL ?? `postgres://app_rw:app_rw_local@${host}`,
@@ -18,3 +19,13 @@ export const testEnv = {
   TOKEN_ENCRYPTION_KEYS: `1:${randomBytes(32).toString('base64')},2:${randomBytes(32).toString('base64')}`,
   TOKEN_ENCRYPTION_KEY_VERSION: '2',
 };
+
+for (const connection of [testEnv.DATABASE_URL, testEnv.DATABASE_URL_OWNER]) {
+  const target = new URL(connection);
+  if (
+    !['localhost', '127.0.0.1'].includes(target.hostname) ||
+    target.port !== '55432' ||
+    target.pathname !== '/ad_astra_test'
+  )
+    throw new Error('Las pruebas destructivas solo aceptan localhost:55432/ad_astra_test');
+}

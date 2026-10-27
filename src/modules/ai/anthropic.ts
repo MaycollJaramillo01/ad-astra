@@ -18,12 +18,11 @@ import {
 // - pensamiento adaptativo (en Opus 5.5 no se puede desactivar) y `effort` explícito;
 // - herramientas `strict` con `tool_choice: auto` (el uso forzado devuelve 400 en Opus 5.5);
 // - caché de prompts automática: herramientas y sistema son estables, lo volátil va en mensajes;
-// - `fallbacks: "default"`: si el modelo rechaza la petición, el servidor la reintenta en el
-//   modelo de respaldo recomendado dentro de la misma llamada;
+// - sin reintentos ni cambios automáticos de modelo: cada llamada tiene reserva de costo;
 // - los bloques de pensamiento se reenvían tal cual; si un cambio de prompt invalida uno antiguo,
 //   se descarta (`drop_block`) en lugar de fallar la conversación.
 
-const BETAS = ['server-side-fallback-2026-07-01', 'thinking-binding-controls-2026-08-01'];
+const BETAS = ['thinking-binding-controls-2026-08-01'];
 
 // El modo estricto no admite restricciones numéricas, de longitud ni de tamaño de array: se
 // quitan del esquema enviado y se siguen validando con zod al recibir la llamada.
@@ -106,7 +105,7 @@ export function anthropicProvider(opts: {
   // El SDK reintenta 408, 409, 429 y 5xx con espera exponencial.
   const client = new Anthropic({
     apiKey: opts.apiKey,
-    maxRetries: 2,
+    maxRetries: 0,
     timeout: 180_000,
     fetch: opts.fetch,
   });
@@ -130,7 +129,6 @@ export function anthropicProvider(opts: {
         thinking: { type: 'adaptive', block_binding: { prefix_mismatch_behavior: 'drop_block' } },
         output_config: { effort: req.effort },
         cache_control: { type: 'ephemeral' },
-        fallbacks: 'default',
         betas: BETAS,
       };
       const started = performance.now();
@@ -149,13 +147,18 @@ export function anthropicProvider(opts: {
         )
           throw new LlmError('auth', 'Credencial del proveedor no válida');
         if (error instanceof Anthropic.BadRequestError)
-          throw new LlmError('rejected', `Petición rechazada: ${error.message}`);
+          throw new LlmError('rejected', 'Petición rechazada por el proveedor');
         if (error instanceof Anthropic.APIError || error instanceof Anthropic.APIConnectionError)
           throw new LlmError('unavailable', 'Proveedor no disponible');
         throw error;
       }
       if (!('content' in response))
         throw new LlmError('unavailable', 'Respuesta inesperada del proveedor');
+      if (response.model !== opts.model)
+        throw new LlmError(
+          'unavailable',
+          'Modelo de respuesta distinto al autorizado; conciliar costo antes de reintentar.',
+        );
 
       const content: LlmBlock[] = [];
       for (const b of response.content) {

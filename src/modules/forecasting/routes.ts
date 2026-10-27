@@ -16,7 +16,7 @@ import {
 } from '../../contracts.ts';
 import { type Db, first, type Tx, withContext } from '../../db/client.ts';
 import { adsets, budgetExperiments, campaigns, insightsDaily } from '../../db/schema.ts';
-import { badRequest, conflict, notFound } from '../../platform/errors.ts';
+import { AppError, badRequest, conflict, notFound } from '../../platform/errors.ts';
 import { userEvent } from '../../platform/events.ts';
 import { type TenantContext, tenantOf } from '../../platform/http.ts';
 import { resolveEntity } from '../audit/engine.routes.ts';
@@ -838,8 +838,20 @@ async function designFor(
   };
 }
 
-export async function forecastingRoutes(fastify: FastifyInstance, { db }: { db: Db }) {
+export async function forecastingRoutes(
+  fastify: FastifyInstance,
+  { db, enabled = true }: { db: Db; enabled?: boolean },
+) {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
+  app.addHook('preHandler', async () => {
+    if (!enabled)
+      throw new AppError(
+        503,
+        'forecast-disabled',
+        'Previsión sin habilitación en este entorno',
+        'Requiere validación temporal y de intervalos con datos reales antes de publicar.',
+      );
+  });
 
   // POST porque lleva cuerpo (calendario y plan); no modifica nada.
   app.post(

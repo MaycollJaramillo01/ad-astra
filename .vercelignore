@@ -1,0 +1,12 @@
+# El despliegue solo contiene fuentes del proyecto; no datos ni secretos locales.
+.git/
+.claude/
+.codegraph/
+.env
+.env.*
+spike-output/
+node_modules/
+dist/
+coverage/
+test-results/
+playwright-report/

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { and, eq, inArray, isNotNull, isNull, or, type SQL, sql } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { Tx } from '../../db/client.ts';
@@ -14,6 +15,7 @@ import {
 import { notFound } from '../../platform/errors.ts';
 import type { TenantContext } from '../../platform/http.ts';
 import { seesAllClients } from '../../platform/rbac.ts';
+import type { ReadCache } from '../../platform/read-cache.ts';
 import { findAccount } from '../catalog/accounts.ts';
 import { clientScope } from '../tenancy/clients.routes.ts';
 import {
@@ -387,11 +389,29 @@ export async function buildReport(
   ctx: TenantContext,
   q: ReportQuery,
   onlyAccounts?: (a: Account) => boolean,
+  cache?: ReadCache,
 ) {
   const resolved = await resolveNode(tx, ctx, q.level, q.id);
   const node = onlyAccounts
     ? { ...resolved, accounts: resolved.accounts.filter(onlyAccounts) }
     : resolved;
+  const key = createHash('sha256')
+    .update(
+      JSON.stringify({
+        tenant: ctx.tenantId,
+        user: ctx.userId,
+        role: ctx.role,
+        q,
+        node,
+        today: localDate(mostCommon(node.accounts.map((a) => a.timezoneName)) ?? 'UTC'),
+      }),
+    )
+    .digest('hex');
+  return cache
+    ? cache.get(key, () => buildResolvedReport(tx, q, node))
+    : buildResolvedReport(tx, q, node);
+}
+async function buildResolvedReport(tx: Tx, q: ReportQuery, node: Node) {
   const timezone = mostCommon(node.accounts.map((a) => a.timezoneName)) ?? 'UTC';
   const today = localDate(timezone);
   const cur =
@@ -537,7 +557,7 @@ export async function buildReport(
   };
 }
 
-export type Report = Awaited<ReturnType<typeof buildReport>>;
+export type Report = Awaited<ReturnType<typeof buildResolvedReport>>;
 
 // --- Hijos del nodo: clientes de la cartera, cuentas de un cliente, campañas, conjuntos, anuncios
 

@@ -20,6 +20,7 @@ import { forecastingRoutes } from './modules/forecasting/routes.ts';
 import { insightsRoutes } from './modules/insights/routes.ts';
 import { connectionRoutes } from './modules/meta/connections.routes.ts';
 import { tickRoutes } from './modules/meta/tick.routes.ts';
+import { monitoringRoutes } from './modules/monitoring/routes.ts';
 import { type ActionGateway, createActionGateway } from './modules/optimization/meta.ts';
 import { actionRoutes } from './modules/optimization/routes.ts';
 import { clientRoutes } from './modules/tenancy/clients.routes.ts';
@@ -35,6 +36,7 @@ import { createTokenCipher } from './platform/crypto.ts';
 import { registerErrorHandling } from './platform/errors.ts';
 import { registerAccessControl } from './platform/http.ts';
 import { createLogger } from './platform/logging.ts';
+import { assertDeployment, operationsRoutes } from './platform/operations.ts';
 
 export interface AppDeps {
   config: Config;
@@ -61,7 +63,8 @@ export async function buildApp({
     // El log de acceso propio (http.ts) registra la plantilla de la ruta, no la URL con su query.
     logController: new LogController({ disableRequestLogging: true }),
     genReqId: () => randomUUID(),
-    trustProxy: true,
+    trustProxy:
+      config.NODE_ENV === 'production' ? (_address: string, hop: number) => hop === 0 : false,
     bodyLimit: 1024 * 1024,
   });
   app.setValidatorCompiler(validatorCompiler);
@@ -89,6 +92,10 @@ export async function buildApp({
   const auth = createAuth(config, db);
   registerAccessControl(app, db, authenticate ?? sessionAuthenticator(auth), config.APP_ORIGIN);
   registerAuthRoutes(app, auth, config.APP_ORIGIN);
+  app.addHook('preHandler', async (request) => {
+    if (request.tenant || request.routeOptions.url === '/v1/auth/*')
+      await assertDeployment(db, config);
+  });
 
   app.get(
     '/v1/health',
@@ -101,6 +108,8 @@ export async function buildApp({
     async (_request, reply) => {
       try {
         await db.execute(sql`select 1`);
+        if ((await assertDeployment(db, config)).recoveryMode)
+          throw new Error('Recuperación pendiente');
         return { status: 'ready' };
       } catch {
         return reply.status(503).send({ status: 'unavailable' });
@@ -123,8 +132,10 @@ export async function buildApp({
   await app.register(catalogRoutes, { db });
   await app.register(auditRoutes, { db });
   await app.register(auditEngineRoutes, { db });
-  await app.register(insightsRoutes, { db });
-  await app.register(forecastingRoutes, { db });
+  await app.register(insightsRoutes, { db, cacheMs: config.ANALYTICS_CACHE_MS });
+  await app.register(forecastingRoutes, { db, enabled: config.FORECASTING_ENABLED });
+  await app.register(monitoringRoutes, { db });
+  await app.register(operationsRoutes, { db, config });
   await app.register(actionRoutes, {
     db,
     config,

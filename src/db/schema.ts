@@ -35,6 +35,7 @@ import {
   ROLES,
   SEVERITIES,
 } from '../domain.ts';
+import type { MonitoringPolicy } from '../monitoring-contracts.ts';
 
 export { ROLES, type Role } from '../domain.ts';
 
@@ -50,6 +51,207 @@ const oneOf = (column: SQL, values: readonly string[]) =>
     values.map((v) => sql.raw(`'${v}'`)),
     sql`, `,
   )})`;
+
+// Monitoreo: el alcance por cliente se comprueba en el servicio además del RLS de tenant.
+export const monitoringPolicies = pgTable(
+  'monitoring_policies',
+  {
+    tenantId: tenantId(),
+    adAccountId: uuid('ad_account_id').notNull(),
+    revision: integer('revision').notNull().default(1),
+    config: jsonb('config').$type<MonitoringPolicy>().notNull(),
+    authorizedBy: uuid('authorized_by').notNull(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.tenantId, t.adAccountId] }),
+    foreignKey({
+      columns: [t.tenantId, t.adAccountId],
+      foreignColumns: [adAccounts.tenantId, adAccounts.id],
+    }),
+  ],
+);
+
+export const monitoringIncidents = pgTable(
+  'monitoring_incidents',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: tenantId(),
+    adAccountId: uuid('ad_account_id').notNull(),
+    fingerprint: text('fingerprint').notNull(),
+    entityLevel: text('entity_level').notNull(),
+    entityMetaId: text('entity_meta_id').notNull(),
+    category: text('category').notNull(),
+    severity: text('severity', { enum: SEVERITIES }).notNull(),
+    status: text('status', {
+      enum: ['pending', 'open', 'acknowledged', 'snoozed', 'resolved', 'dismissed'],
+    }).notNull(),
+    revision: integer('revision').notNull().default(1),
+    episode: integer('episode').notNull().default(1),
+    policyRevision: integer('policy_revision').notNull(),
+    hitCount: integer('hit_count').notNull().default(0),
+    clearCount: integer('clear_count').notNull().default(0),
+    lastObservation: text('last_observation').notNull(),
+    evidence: jsonb('evidence').notNull(),
+    snoozedUntil: ts('snoozed_until'),
+    lastNotifiedAt: ts('last_notified_at'),
+    openedAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    unique('monitoring_incidents_tenant_id_id').on(t.tenantId, t.id),
+    unique('monitoring_incidents_fingerprint').on(t.tenantId, t.adAccountId, t.fingerprint),
+    foreignKey({
+      columns: [t.tenantId, t.adAccountId],
+      foreignColumns: [adAccounts.tenantId, adAccounts.id],
+    }),
+    check(
+      'monitoring_incidents_status',
+      oneOf(sql`${t.status}`, [
+        'pending',
+        'open',
+        'acknowledged',
+        'snoozed',
+        'resolved',
+        'dismissed',
+      ]),
+    ),
+    index('monitoring_incidents_account').on(t.tenantId, t.adAccountId, t.status),
+  ],
+);
+
+export const monitoringEvents = pgTable(
+  'monitoring_events',
+  {
+    id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+    tenantId: tenantId(),
+    adAccountId: uuid('ad_account_id').notNull(),
+    incidentId: uuid('incident_id'),
+    actorId: uuid('actor_id'),
+    event: text('event').notNull(),
+    data: jsonb('data').notNull(),
+    at: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.tenantId, t.adAccountId],
+      foreignColumns: [adAccounts.tenantId, adAccounts.id],
+    }),
+    foreignKey({
+      columns: [t.tenantId, t.incidentId],
+      foreignColumns: [monitoringIncidents.tenantId, monitoringIncidents.id],
+    }),
+  ],
+);
+
+export const monitoringRuns = pgTable(
+  'monitoring_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: tenantId(),
+    adAccountId: uuid('ad_account_id').notNull(),
+    asOf: date('as_of').notNull(),
+    policyRevision: integer('policy_revision').notNull(),
+    inputHash: text('input_hash').notNull(),
+    stats: jsonb('stats').notNull(),
+    at: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.tenantId, t.adAccountId],
+      foreignColumns: [adAccounts.tenantId, adAccounts.id],
+    }),
+    index('monitoring_runs_account').on(t.tenantId, t.adAccountId, t.at),
+  ],
+);
+
+export const actionFollowups = pgTable(
+  'action_followups',
+  {
+    tenantId: tenantId(),
+    actionId: uuid('action_id').notNull(),
+    adAccountId: uuid('ad_account_id').notNull(),
+    plan: jsonb('plan').notNull(),
+    result: jsonb('result'),
+    capturedAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.tenantId, t.actionId] }),
+    foreignKey({
+      columns: [t.tenantId, t.actionId],
+      foreignColumns: [actions.tenantId, actions.id],
+    }),
+    foreignKey({
+      columns: [t.tenantId, t.adAccountId],
+      foreignColumns: [adAccounts.tenantId, adAccounts.id],
+    }),
+  ],
+);
+
+export const monitoringReports = pgTable(
+  'monitoring_reports',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: tenantId(),
+    adAccountId: uuid('ad_account_id').notNull(),
+    periodKey: text('period_key'),
+    snapshot: jsonb('snapshot').notNull(),
+    createdBy: uuid('created_by'),
+    at: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.tenantId, t.adAccountId],
+      foreignColumns: [adAccounts.tenantId, adAccounts.id],
+    }),
+    unique('monitoring_reports_period').on(t.tenantId, t.adAccountId, t.periodKey),
+  ],
+);
+
+export const monitoringDeliveries = pgTable(
+  'monitoring_deliveries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: tenantId(),
+    adAccountId: uuid('ad_account_id').notNull(),
+    userId: uuid('user_id').notNull(),
+    channel: text('channel', { enum: ['in_app', 'email'] }).notNull(),
+    policyRevision: integer('policy_revision').notNull(),
+    digestKey: text('digest_key').notNull(),
+    incidentIds: uuid('incident_ids').array().notNull(),
+    status: text('status', {
+      enum: ['queued', 'sending', 'sent', 'cancelled', 'unknown', 'failed'],
+    })
+      .notNull()
+      .default('queued'),
+    payload: jsonb('payload'),
+    providerId: text('provider_id'),
+    error: text('error'),
+    dispatchedAt: ts('dispatched_at'),
+    createdAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    unique('monitoring_deliveries_digest').on(
+      t.tenantId,
+      t.adAccountId,
+      t.userId,
+      t.channel,
+      t.digestKey,
+    ),
+    foreignKey({
+      columns: [t.tenantId, t.adAccountId],
+      foreignColumns: [adAccounts.tenantId, adAccounts.id],
+    }),
+    index('monitoring_deliveries_account').on(t.tenantId, t.adAccountId, t.createdAt),
+    check('monitoring_deliveries_channel', oneOf(sql`${t.channel}`, ['in_app', 'email'])),
+    check(
+      'monitoring_deliveries_status',
+      oneOf(sql`${t.status}`, ['queued', 'sending', 'sent', 'cancelled', 'unknown', 'failed']),
+    ),
+  ],
+);
 
 // --- Autenticación (Better Auth, ADR-019). Tablas globales: un usuario puede pertenecer a
 // varios tenants; el acceso a datos lo da `memberships`.
@@ -515,6 +717,7 @@ export const jobs = pgTable(
     recurringEverySeconds: integer('recurring_every_seconds'),
     runAfter: ts('run_after').notNull().defaultNow(),
     lockedUntil: ts('locked_until'),
+    leaseId: uuid('lease_id'),
     attempts: integer('attempts').notNull().default(0),
     maxAttempts: integer('max_attempts').notNull().default(5),
     status: text('status', { enum: ['queued', 'running', 'succeeded', 'failed'] })
@@ -814,6 +1017,7 @@ export const aiConversations = pgTable(
     /** Proveedor y modelo fijos por conversación: el historial nativo solo vale para ellos. */
     provider: text('provider').notNull(),
     model: text('model').notNull(),
+    accessHash: text('access_hash'),
     createdAt: createdAt(),
     updatedAt: ts('updated_at').notNull().defaultNow(),
   },
@@ -1052,5 +1256,59 @@ export const actionEvents = pgTable(
       foreignColumns: [actions.tenantId, actions.id],
     }),
     index('action_events_action').on(t.tenantId, t.actionId, t.id),
+  ],
+);
+
+/** Estado técnico global: solo metadatos de despliegue, sin datos de clientes ni secretos. */
+export const deploymentState = pgTable(
+  'deployment_state',
+  {
+    id: integer('id').primaryKey().default(1),
+    environment: text('environment').notNull().default('unbound'),
+    schemaVersion: integer('schema_version').notNull().default(16),
+    recoveryMode: boolean('recovery_mode').notNull().default(true),
+    workerStartedAt: ts('worker_started_at'),
+    workerFinishedAt: ts('worker_finished_at'),
+    backupAt: ts('backup_at'),
+    restoreDrillAt: ts('restore_drill_at'),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [check('deployment_singleton', sql`${t.id}=1`)],
+);
+
+export const llmBudgetHolds = pgTable(
+  'llm_budget_holds',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: tenantId(),
+    userId: uuid('user_id').notNull(),
+    amountUsd: numeric('amount_usd', { precision: 14, scale: 6 }).notNull(),
+    status: text('status', { enum: ['reserved', 'settled', 'unknown'] })
+      .notNull()
+      .default('reserved'),
+    createdAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('llm_holds_tenant_status').on(t.tenantId, t.status),
+    check('llm_hold_positive', sql`${t.amountUsd}>=0`),
+    check('llm_hold_status', oneOf(sql`${t.status}`, ['reserved', 'settled', 'unknown'])),
+  ],
+);
+
+export const technicalIncidents = pgTable(
+  'technical_incidents',
+  {
+    tenantId: tenantId(),
+    code: text('code').notNull(),
+    severity: text('severity', { enum: SEVERITIES }).notNull(),
+    status: text('status', { enum: ['open', 'resolved'] }).notNull(),
+    evidence: jsonb('evidence').notNull(),
+    openedAt: createdAt(),
+    updatedAt: ts('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.tenantId, t.code] }),
+    check('technical_incident_status', oneOf(sql`${t.status}`, ['open', 'resolved'])),
   ],
 );

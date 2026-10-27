@@ -69,12 +69,13 @@ export async function cancelQueued(tx: Db | Tx, dedupePrefix: string): Promise<v
  */
 export async function claimJob(db: Db, tenantId?: string): Promise<Job | null> {
   const { rows } = await db.execute<Record<string, unknown>>(sql`
-    update jobs set status = 'running', attempts = attempts + 1, updated_at = now(),
+    update jobs set status = 'running', attempts = attempts + 1, updated_at = now(), lease_id=gen_random_uuid(),
                     locked_until = now() + make_interval(mins => ${LEASE_MINUTES})
     where id = (
       select id from jobs
       where ((status = 'queued' and run_after <= now()) or (status = 'running' and locked_until < now()))
         and (${tenantId ?? null}::uuid is null or tenant_id = ${tenantId ?? null}::uuid)
+        and not coalesce((select recovery_mode from deployment_state where id=1),true)
       order by run_after
       limit 1
       for update skip locked
@@ -92,7 +93,7 @@ export async function claimJob(db: Db, tenantId?: string): Promise<Job | null> {
 const backoffSeconds = (attempts: number) => Math.min(3600, 30 * 2 ** Math.max(0, attempts - 1));
 
 export async function finishJob(db: Db, job: Job, outcome: JobOutcome): Promise<void> {
-  const base = { lockedUntil: null, updatedAt: new Date() };
+  const base = { lockedUntil: null, leaseId: null, updatedAt: new Date() };
   const requeueRecurring = (lastError: string | null) => ({
     ...base,
     status: 'queued' as const,
@@ -149,7 +150,11 @@ export async function finishJob(db: Db, job: Job, outcome: JobOutcome): Promise<
       set = { ...base, status: 'failed', lastError: redact(outcome.error) };
       break;
   }
-  await db.update(jobs).set(set).where(eq(jobs.id, job.id));
+  if (!job.leaseId) return;
+  await db
+    .update(jobs)
+    .set(set)
+    .where(and(eq(jobs.id, job.id), eq(jobs.leaseId, job.leaseId), eq(jobs.status, 'running')));
 }
 
 export interface TickResult {
@@ -183,6 +188,7 @@ export async function runTick(opts: {
       const log = opts.log.child({ job: job.id, kind: job.kind, tenant: job.tenantId });
       const handler = opts.handlers[job.kind];
       let outcome: JobOutcome;
+      const started = performance.now();
       try {
         outcome = handler
           ? await handler(job)
@@ -194,7 +200,10 @@ export async function runTick(opts: {
       await finishJob(opts.db, job, outcome);
       result.processed++;
       result.outcomes[outcome.type]++;
-      log.info({ outcome: outcome.type }, 'trabajo procesado');
+      log.info(
+        { outcome: outcome.type, ms: Math.round(performance.now() - started) },
+        'trabajo procesado',
+      );
     }
   };
 

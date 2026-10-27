@@ -1,6 +1,7 @@
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { fromNodeHeaders } from 'better-auth/node';
+import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Db } from '../db/client.ts';
 import { authAccounts, authSessions, authUsers, authVerifications } from '../db/schema.ts';
@@ -46,13 +47,22 @@ export function createAuth(config: Config, db: Db) {
       user: {
         create: {
           before: async (user) =>
-            (await canSignUp(db, config.GOOGLE_WORKSPACE_DOMAIN, user.email)) ? undefined : false,
+            user.emailVerified && (await canSignUp(db, config.GOOGLE_WORKSPACE_DOMAIN, user.email))
+              ? undefined
+              : false,
         },
       },
       session: {
         create: {
-          before: async (session) =>
-            (await activateMemberships(db, session.userId)) ? undefined : false,
+          before: async (session) => {
+            const [user] = await db
+              .select({ verified: authUsers.emailVerified })
+              .from(authUsers)
+              .where(eq(authUsers.id, session.userId));
+            return user?.verified && (await activateMemberships(db, session.userId))
+              ? undefined
+              : false;
+          },
         },
       },
     },
@@ -73,7 +83,9 @@ export const sessionAuthenticator =
   (auth: Auth): Authenticate =>
   async (request) => {
     const session = await auth.api.getSession({ headers: fromNodeHeaders(request.headers) });
-    return session ? { userId: session.user.id, email: session.user.email } : null;
+    return session?.user.emailVerified
+      ? { userId: session.user.id, email: session.user.email }
+      : null;
   };
 
 /** Monta las rutas de Better Auth (/v1/auth/*) sobre Fastify. */

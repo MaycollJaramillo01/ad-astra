@@ -18,6 +18,7 @@ import {
   type Verification,
   verifyAnswer,
 } from './answer.ts';
+import { lockBudget, reserveBudget, settleHold } from './budget.ts';
 import {
   type LlmBlock,
   LlmError,
@@ -28,6 +29,7 @@ import {
   type LlmTool,
   reserveOf,
 } from './provider.ts';
+import { accessHash, assertConversationAccess } from './scope.ts';
 import { consentedClients, runTool, TOOLS, ToolError, toolSchema } from './tools.ts';
 
 // Orquestador del asistente (docs/ARCHITECTURE.md §6.8). Bucle manual: el modelo consulta
@@ -166,6 +168,8 @@ function prioritize(answer: Answer, verification: Verification) {
 export async function ask(deps: AssistantDeps, ctx: TenantContext, input: AskInput) {
   const { db, llm, config } = deps;
   if (!llm) throw new AppError(503, 'ai-disabled', 'El asistente de IA no está configurado');
+  const scope = await withContext(db, ctx, (tx) => accessHash(tx, ctx));
+  if (scope === 'revoked') throw notFound('Alcance vigente');
 
   // Conversación propia (la RLS ya oculta las ajenas) e historial de los turnos con respuesta.
   const loaded = await withContext(db, ctx, async (tx) => {
@@ -175,6 +179,7 @@ export async function ask(deps: AssistantDeps, ctx: TenantContext, input: AskInp
       .from(aiConversations)
       .where(eq(aiConversations.id, input.conversationId));
     if (!conversation) throw notFound('Conversación');
+    await assertConversationAccess(tx, ctx, conversation.id);
     if (conversation.provider !== llm.id || conversation.model !== llm.model)
       throw conflict('La conversación usa otro modelo de IA: empieza una nueva');
     const turns = await tx
@@ -275,9 +280,10 @@ export async function ask(deps: AssistantDeps, ctx: TenantContext, input: AskInp
   let pending: LlmBlock[] = [];
   let conversationId = loaded?.conversation.id ?? null;
 
-  const record = (result: LlmResult | null, error: LlmError | null) =>
-    withContext(db, ctx, (tx) =>
-      tx.insert(llmUsage).values({
+  const record = (result: LlmResult | null, error: LlmError | null, holdId: string) =>
+    withContext(db, ctx, async (tx) => {
+      await lockBudget(tx, ctx.tenantId);
+      await tx.insert(llmUsage).values({
         tenantId: ctx.tenantId,
         userId: ctx.userId,
         conversationId,
@@ -301,8 +307,9 @@ export async function ask(deps: AssistantDeps, ctx: TenantContext, input: AskInp
         stopReason: result?.stopReason ?? error?.kind ?? null,
         fallback: result?.fallback ?? false,
         requestId: result?.requestId ?? null,
-      }),
-    );
+      });
+      await settleHold(tx, holdId, error?.kind === 'unavailable');
+    });
 
   // La conversación se crea antes de la primera llamada para que el uso quede asociado.
   if (!conversationId) {
@@ -316,6 +323,7 @@ export async function ask(deps: AssistantDeps, ctx: TenantContext, input: AskInp
             title: input.question.replace(/\s+/g, ' ').trim().slice(0, 80),
             provider: llm.id,
             model: llm.model,
+            accessHash: scope,
           })
           .returning({ id: aiConversations.id }),
       ),
@@ -336,21 +344,27 @@ export async function ask(deps: AssistantDeps, ctx: TenantContext, input: AskInp
       effort: config.AI_EFFORT,
     };
     const reserve = reserveOf(llm.model, req);
-    if (
-      spent.month + cost + reserve > config.AI_MONTHLY_BUDGET_USD ||
-      spent.day + cost + reserve > config.AI_USER_DAILY_BUDGET_USD ||
-      cost + reserve > config.AI_QUESTION_BUDGET_USD
-    ) {
+    if (cost + reserve > config.AI_QUESTION_BUDGET_USD) {
       status = 'budget_exhausted';
       break;
     }
     let result: LlmResult;
+    if ((await withContext(db, ctx, (tx) => accessHash(tx, ctx))) !== scope)
+      throw conflict('Cambió el alcance o consentimiento de IA; inicia otra conversación.');
+    const holdId = await reserveBudget(db, ctx, config, reserve);
+    if (!holdId) {
+      status = 'budget_exhausted';
+      break;
+    }
     try {
       result = await llm.generate(req);
     } catch (error) {
-      if (!(error instanceof LlmError)) throw error;
-      await record(null, error);
-      deps.request?.log.warn({ kind: error.kind }, 'fallo del proveedor de IA');
+      const known =
+        error instanceof LlmError
+          ? error
+          : new LlmError('unavailable', 'Resultado de inferencia desconocido');
+      await record(null, known, holdId);
+      deps.request?.log.warn({ kind: known.kind }, 'fallo del proveedor de IA');
       status = 'failed';
       break;
     }
@@ -361,7 +375,7 @@ export async function ask(deps: AssistantDeps, ctx: TenantContext, input: AskInp
     usage.cacheWrite += result.usage.cacheWrite;
     usage.fallback ||= result.fallback;
     cost += result.costUsd;
-    await record(result, null);
+    await record(result, null, holdId);
     if (result.stopReason === 'refusal') {
       status = 'refused';
       break;
@@ -476,6 +490,10 @@ export async function ask(deps: AssistantDeps, ctx: TenantContext, input: AskInp
   const createdConversation = conversationId as string;
 
   return withContext(db, ctx, async (tx) => {
+    if ((await accessHash(tx, ctx)) !== scope)
+      throw conflict(
+        'Cambió el alcance o consentimiento de IA; no se devuelve la evidencia anterior.',
+      );
     await tx.insert(aiMessages).values({
       tenantId: ctx.tenantId,
       conversationId: createdConversation,
@@ -533,6 +551,11 @@ export async function ask(deps: AssistantDeps, ctx: TenantContext, input: AskInp
 
 /** Últimas conversaciones del usuario. */
 export const listConversations = (db: Db, ctx: TenantContext) =>
-  withContext(db, ctx, (tx) =>
-    tx.select().from(aiConversations).orderBy(desc(aiConversations.updatedAt)).limit(50),
+  withContext(db, ctx, async (tx) =>
+    tx
+      .select()
+      .from(aiConversations)
+      .where(eq(aiConversations.accessHash, await accessHash(tx, ctx)))
+      .orderBy(desc(aiConversations.updatedAt))
+      .limit(50),
   );

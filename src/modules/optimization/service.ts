@@ -32,6 +32,7 @@ import { AppError, badRequest, conflict, forbidden, notFound } from '../../platf
 import { recordEvent } from '../../platform/events.ts';
 import type { TenantContext } from '../../platform/http.ts';
 import { enqueue } from '../../platform/jobs.ts';
+import { assertSideEffects } from '../../platform/operations.ts';
 import { can } from '../../platform/rbac.ts';
 import { findAccount } from '../catalog/accounts.ts';
 import { clientScope } from '../tenancy/clients.routes.ts';
@@ -128,6 +129,7 @@ export async function authorization(
   config: Config,
   readOnly = false,
 ): Promise<WriteContext> {
+  if (!readOnly) await assertSideEffects(tx, config, a.tenantId);
   const [account] = await tx.select().from(adAccounts).where(eq(adAccounts.id, a.adAccountId));
   if (!account?.clientId)
     throw forbidden('La cuenta necesita un cliente y consentimiento de escritura.');

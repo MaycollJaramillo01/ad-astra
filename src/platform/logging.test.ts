@@ -34,3 +34,33 @@ it('redact limpia parámetros de credenciales y cabeceras Bearer', () => {
   );
   expect(redact('Authorization: Bearer abc.def-ghi')).toBe('Authorization: Bearer [REDACTED]');
 });
+
+it('redacta secretos anidados, prompts y credenciales Postgres sin perder métricas', () => {
+  let out = '';
+  const log = createLogger(
+    new Writable({
+      write(chunk, _enc, done) {
+        out += chunk.toString();
+        done();
+      },
+    }),
+  );
+  log.info(
+    {
+      deep: {
+        more: {
+          apiKey: 'private-key-canary',
+          password: 'password-canary',
+          body: { question: 'prompt-canary' },
+        },
+      },
+      headers: { Authorization: 'Bearer header-canary' },
+      url: 'postgres://user:password-canary@localhost/db',
+      inputTokens: 123,
+    },
+    'operación',
+  );
+  for (const secret of ['private-key-canary', 'password-canary', 'prompt-canary', 'header-canary'])
+    expect(out).not.toContain(secret);
+  expect(out).toContain('123');
+});

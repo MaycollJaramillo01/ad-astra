@@ -14,16 +14,11 @@ const { db, pool } = createDb(config.DATABASE_URL);
 const cipher = createTokenCipher(config.TOKEN_ENCRYPTION_KEYS, config.TOKEN_ENCRYPTION_KEY_VERSION);
 const tick = createTickRunner(config, db, cipher, log);
 
-if (!tick) {
-  log.error('Falta META_APP_ID o META_APP_SECRET: no hay nada que sincronizar');
-  process.exitCode = 1;
-} else {
-  const stop = new AbortController();
-  process.once('SIGINT', () => stop.abort());
-  do {
-    log.info(await tick(), 'tick terminado');
-    if (process.argv.includes('--once')) break;
-    await sleep(60_000, undefined, { signal: stop.signal }).catch(() => {});
-  } while (!stop.signal.aborted);
-}
+const stop = new AbortController();
+process.once('SIGINT', () => stop.abort());
+do {
+  log.info(await tick(), 'tick terminado');
+  if (process.argv.includes('--once')) break;
+  await sleep(60_000, undefined, { signal: stop.signal }).catch(() => {});
+} while (!stop.signal.aborted);
 await pool.end();

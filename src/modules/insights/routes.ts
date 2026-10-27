@@ -4,6 +4,7 @@ import { AnalyticsExportQuery, AnalyticsQuery, AnalyticsReportDto } from '../../
 import { type Db, withContext } from '../../db/client.ts';
 import { userEvent } from '../../platform/events.ts';
 import { tenantOf } from '../../platform/http.ts';
+import { ReadCache } from '../../platform/read-cache.ts';
 import {
   accountStatus,
   change,
@@ -146,8 +147,12 @@ export function reportToCsv(report: Report, columns: MetricId[]): { csv: string;
   };
 }
 
-export async function insightsRoutes(fastify: FastifyInstance, { db }: { db: Db }) {
+export async function insightsRoutes(
+  fastify: FastifyInstance,
+  { db, cacheMs = 0 }: { db: Db; cacheMs?: number },
+) {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
+  const cache = new ReadCache(cacheMs);
 
   app.get(
     '/v1/analytics',
@@ -157,7 +162,7 @@ export async function insightsRoutes(fastify: FastifyInstance, { db }: { db: Db 
     },
     async (request) => {
       const ctx = tenantOf(request);
-      return withContext(db, ctx, (tx) => buildReport(tx, ctx, request.query));
+      return withContext(db, ctx, (tx) => buildReport(tx, ctx, request.query, undefined, cache));
     },
   );
 

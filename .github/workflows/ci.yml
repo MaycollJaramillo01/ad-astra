@@ -1,5 +1,8 @@
 # Puertas de la CI (docs/TESTING.md §6). Nunca recibe credenciales de Meta ni de LLM.
 name: ci
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 on:
   push:
@@ -12,6 +15,7 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     services:
       postgres:
         image: postgres:17
@@ -26,9 +30,9 @@ jobs:
           --health-retries 30
     # Los tests usan su propia BD (ad_astra_test, test/env.ts): la migran y la vacían al empezar.
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: pnpm
@@ -40,15 +44,39 @@ jobs:
       - run: pnpm test
       - run: pnpm build:web
       - run: pnpm docs:check
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+      - run: pnpm test:load
+      - name: Cliente PostgreSQL 17 para restauración
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-17
+          echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
+      - run: pnpm ops:recovery-drill
+        env:
+          DRILL_ADMIN_URL: postgres://postgres:postgres_ci@localhost:55432/postgres
       - name: Auditoría de dependencias
-        run: pnpm audit --audit-level high
+        run: pnpm audit --audit-level moderate
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: readiness-evidence
+          retention-days: 7
+          path: |
+            spike-output/readiness/e2e.json
+            spike-output/readiness/load.json
+            spike-output/readiness/recovery.json
+          if-no-files-found: warn
 
   secrets:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

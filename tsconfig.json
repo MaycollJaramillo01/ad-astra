@@ -12,5 +12,14 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src", "scripts", "test", "vitest.config.ts", "drizzle.config.ts", "vite.config.ts"]
+  "include": [
+    "api",
+    "src",
+    "scripts",
+    "test",
+    "vitest.config.ts",
+    "playwright.config.ts",
+    "drizzle.config.ts",
+    "vite.config.ts"
+  ]
 }

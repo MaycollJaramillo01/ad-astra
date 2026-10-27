@@ -80,15 +80,16 @@ interface Price {
 }
 export const PRICING: Record<string, Price> = {
   'claude-opus-5-5': { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
-  'claude-sonnet-5-5': { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+  'claude-sonnet-5-5': { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
   'claude-opus-5': { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
   'claude-opus-4-8': { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
 };
-// Un modelo sin precio conocido se cobra al más caro: el presupuesto nunca se queda corto.
-const PRICIEST = PRICING['claude-opus-5'] as Price;
 
 export function costOf(model: string, u: LlmUsage): number {
-  const p = PRICING[model] ?? PRICIEST;
+  const p = PRICING[model];
+  if (!p) throw new LlmError('rejected', 'Modelo sin tarifa verificada');
+  if (Object.values(u).some((v) => !Number.isFinite(v) || v < 0))
+    throw new LlmError('unavailable', 'Uso de tokens inválido');
   return (
     (u.input * p.input +
       u.output * p.output +
@@ -99,17 +100,16 @@ export function costOf(model: string, u: LlmUsage): number {
 }
 
 /**
- * Reserva antes de enviar: entrada estimada (≈3 caracteres por token, sin contar la caché) más
- * un cuarto de `maxTokens` de salida. Es una cota para no empezar una llamada sin saldo, no el costo.
+ * Reserva conservadora: bytes UTF-8 más margen de protocolo y salida máxima completa.
+ * La entrada se reserva como escritura de caché de 5 min (la tarifa mayor habilitada).
  */
 export function reserveOf(model: string, req: LlmRequest): number {
-  const chars =
-    req.system.length + JSON.stringify(req.tools).length + JSON.stringify(req.messages).length;
+  const bytes = Buffer.byteLength(JSON.stringify(req), 'utf8') + 1024;
   return costOf(model, {
-    input: chars / 3,
-    output: req.maxTokens / 4,
+    input: 0,
+    output: req.maxTokens,
     cacheRead: 0,
-    cacheWrite: 0,
+    cacheWrite: bytes,
   });
 }
 

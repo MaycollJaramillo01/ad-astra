@@ -1,12 +1,16 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { Logger } from 'pino';
 import type { Db } from '../../db/client.ts';
+import { deploymentState, jobs, SYNC_KINDS } from '../../db/schema.ts';
 import type { Config } from '../../platform/config.ts';
 import type { TokenCipher } from '../../platform/crypto.ts';
-import { AppError, notFound, unauthorized } from '../../platform/errors.ts';
+import { notFound, unauthorized } from '../../platform/errors.ts';
 import { runTick } from '../../platform/jobs.ts';
+import { assertDeployment, evaluateTechnical } from '../../platform/operations.ts';
 import { createAuditHandler } from '../audit/service.ts';
+import { createMonitoringHandlers } from '../monitoring/worker.ts';
 import { createActionGateway } from '../optimization/meta.ts';
 import { createActionHandler } from '../optimization/worker.ts';
 import { createSyncHandlers } from './sync.ts';
@@ -14,16 +18,31 @@ import { createSyncHandlers } from './sync.ts';
 // Tick de la cola (ADR-022): Vercel Cron llama a GET /v1/internal/tick con
 // "Authorization: Bearer $CRON_SECRET" cada pocos minutos. En local lo hace scripts/worker.ts.
 
-/** El tick listo para ejecutar, o null si falta la app de Meta (no se simula nada). */
+/** Monitoreo técnico disponible también sin integración Meta. No se simulan sus llamadas. */
 export function createTickRunner(config: Config, db: Db, cipher: TokenCipher, log: Logger) {
-  if (!config.META_APP_ID || !config.META_APP_SECRET) return null;
+  const meta =
+    config.META_APP_ID && config.META_APP_SECRET
+      ? { appId: config.META_APP_ID, appSecret: config.META_APP_SECRET }
+      : null;
   const handlers = {
-    ...createSyncHandlers({
-      db,
-      cipher,
-      meta: { appId: config.META_APP_ID, appSecret: config.META_APP_SECRET },
-      log,
-    }),
+    ...createMonitoringHandlers(db, config),
+    ...(meta
+      ? createSyncHandlers({
+          db,
+          cipher,
+          meta,
+          log,
+        })
+      : Object.fromEntries(
+          SYNC_KINDS.map((kind) => [
+            kind,
+            async () => ({
+              type: 'reschedule' as const,
+              runAfter: new Date(Date.now() + 3600000),
+              reason: 'Integración Meta no configurada.',
+            }),
+          ]),
+        )),
     audit: createAuditHandler(db),
     action_execute: createActionHandler({
       db,
@@ -31,14 +50,28 @@ export function createTickRunner(config: Config, db: Db, cipher: TokenCipher, lo
       gateway: createActionGateway({ db, config, cipher }),
     }),
   };
-  return () =>
-    runTick({
+  return async () => {
+    await assertDeployment(db, config);
+    await db
+      .update(deploymentState)
+      .set({ workerStartedAt: new Date() })
+      .where(eq(deploymentState.id, 1));
+    const result = await runTick({
       db,
       handlers,
       log,
       budgetMs: config.TICK_BUDGET_SECONDS * 1000,
       concurrency: config.TICK_CONCURRENCY,
     });
+    await db
+      .update(deploymentState)
+      .set({ workerFinishedAt: new Date() })
+      .where(eq(deploymentState.id, 1));
+    const tenants = await db.selectDistinct({ tenantId: jobs.tenantId }).from(jobs).limit(100);
+    for (const t of tenants) await evaluateTechnical(db, t.tenantId);
+    log.info({ event: 'worker.tick', ...result }, 'tick técnico terminado');
+    return result;
+  };
 }
 
 // Comparación en tiempo constante (sobre hashes para no filtrar la longitud).
@@ -59,13 +92,6 @@ export async function tickRoutes(
       if (!config.CRON_SECRET) throw notFound(); // sin secreto configurado, el tick HTTP no existe
       if (!sameSecret(request.headers.authorization ?? '', `Bearer ${config.CRON_SECRET}`))
         throw unauthorized();
-      if (!tick)
-        throw new AppError(
-          503,
-          'unavailable',
-          'Sincronización no disponible',
-          'Falta META_APP_ID o META_APP_SECRET',
-        );
       return tick();
     },
   );

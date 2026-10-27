@@ -2,7 +2,7 @@ import { createHmac, randomBytes } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { withContext } from '../src/db/client.ts';
-import { authSessions, invitations, memberships } from '../src/db/schema.ts';
+import { authSessions, authUsers, invitations, memberships } from '../src/db/schema.ts';
 import { activateMemberships, canSignUp, emailInDomain } from '../src/platform/access.ts';
 import { createAuth } from '../src/platform/auth.ts';
 import { config, testApp } from './app.ts';
@@ -71,6 +71,13 @@ describe('Better Auth real', () => {
       updatedAt: new Date(),
     };
     expect(await hooks?.user?.create?.before?.(outsider)).toBe(false);
+    await withContext(db, { tenantId: a.tenantId }, (tx) =>
+      tx
+        .insert(invitations)
+        .values({ tenantId: a.tenantId, email: outsider.email, role: 'analyst' }),
+    );
+    expect(await hooks?.user?.create?.before?.(outsider)).toBeUndefined();
+    expect(await hooks?.user?.create?.before?.({ ...outsider, emailVerified: false })).toBe(false);
     const orphan = await seedUser(db);
     const session = {
       id: 'x',
@@ -134,6 +141,12 @@ describe('Better Auth real', () => {
       .insert(authSessions)
       .values({ token: expired, userId: a.owner.id, expiresAt: new Date(Date.now() - 1000) });
     expect((await get(sign(expired))).statusCode).toBe(401);
+    await db.update(authUsers).set({ emailVerified: false }).where(eq(authUsers.id, a.owner.id));
+    try {
+      expect((await get(sign(token))).statusCode).toBe(401);
+    } finally {
+      await db.update(authUsers).set({ emailVerified: true }).where(eq(authUsers.id, a.owner.id));
+    }
     await app.close();
   });
 });

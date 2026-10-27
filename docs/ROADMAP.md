@@ -1,5 +1,7 @@
 # Hoja de ruta — Ad Astra
 
+Auditoría 2026-10-26: [matriz completa de aceptación y riesgos](PRODUCTION_READINESS_2026-10-26.md). **No listo para producción**: los recursos de staging/producción aún no existen. Las verificaciones locales no cierran las conciliaciones, permisos, piloto ni recuperación cloud. [Operación](OPERATIONS.md) y [costos](OPERATING_COSTS.md).
+
 > Versión 0.1 · 2026-10-23. Las duraciones son orientativas bajo SUP-04 (2 desarrolladores full-stack + 0,5 perfil de datos) y no incluyen los plazos de revisión de Meta. Cada fase se cierra con la puerta de [MASTER_PLAN.md §11](MASTER_PLAN.md#11-principios-de-ingeniería-y-reglas-de-ejecución).
 
 ## 1. Vista general
@@ -164,9 +166,9 @@ Plantilla de cada fase: (1) objetivo y alcance · (2) requisitos funcionales y n
 
 ### 4.4 F3 — Auditoría, índices de salud y alertas (cierra el MVP)
 
-> **Estado (2026-10-24): motor de auditoría e índice de salud implementados y probados con datos sintéticos; faltan las alertas y notificaciones (TD-21) y el piloto.**
+> **Estado (2026-10-26): motor, salud y [subsistema de monitoreo](MONITORING.md) implementados y probados con datos sintéticos. Incidentes, reglas por cuenta, outbox autorizada, seguimientos previos/posteriores e informes ejecutivo/técnico disponibles. Pendientes calibración, entregabilidad/SLA y piloto real.**
 > - ✅ Motor determinista (función pura con huella de entradas): 15 reglas en 10 categorías con parámetros validados por esquema, elegibilidad, muestra mínima y tres salidas; perfiles por objetivo; referencias internas (objetivo del cliente → línea base → mediana de la cuenta); control de falsos descubrimientos (Benjamini-Hochberg); severidad por impacto y prioridad; ciclo de vida con `finding_events`; `health-v1` con cinco subíndices, cobertura y "Datos insuficientes"; configuración por organización y cliente; ejecución tras cada sincronización y a mano; vista de salud y hallazgos en el dashboard.
-> - Criterios: CA-F3-01, 02, 03 y la parte de ciclo de vida de CA-F3-04 cumplidos con tests; la parte de alertas de CA-F3-04 y CA-F3-05 esperan a TD-21; CA-F3-06 es del piloto.
+> - Criterios: CA-F3-01, 02, 03 y ciclo de vida/deduplicación de incidentes verificados con tests. El historial de incidentes usa `monitoring_events`; los hallazgos conservan `finding_events`. CA-F3-05 no se declara cumplido: el SLA depende del cron, persistencia, silencio, cupos y proveedor. CA-F3-06 es del piloto.
 
 1. **Objetivo y alcance.** Evaluar automáticamente cada cuenta, campaña, conjunto y anuncio con reglas configurables y un índice de salud explicable, y alertar tras cada sincronización. Calidad de eventos básica.
 2. **Requisitos.**
@@ -304,7 +306,7 @@ Se revisa al cierre de cada fase. Cada entrada indica el impacto y cuándo se pa
 | TD-18 | F1 sync | El descubrimiento no marca las cuentas que dejan de aparecer; las entidades que Meta deja de listar (borradas o archivadas) se marcan con `deleted_at` sin distinguir el motivo | Una cuenta sin acceso falla con un error de permisos en vez de mostrarse como "sin acceso" | F2 (estado de la cuenta en la UI) |
 | TD-19 | F1 sync | ~~`token_validation` usa `debug_token` con el token de la app y `appsecret_proof`, sin confirmar que Meta lo acepte~~ **Resuelto el 2026-10-24:** el spike lo confirmó con una llamada real. La "lectura mínima" de API_INTEGRATIONS §1.4 la sigue haciendo el descubrimiento justo después | — | — |
 | TD-20 | F3 | Reglas previstas aplazadas: saturación (necesita el alcance semanal), audiencias compartidas (leer `targeting`), riesgo de inversión (`spend_cap`) y, en medición, píxel, CAPI y EMQ | Menos diagnósticos que el catálogo previsto | F3 piloto y tras V-14 |
-| TD-21 | F3 | Sin alertas ni notificaciones (tipos del requisito 8, políticas, email, resumen), sin marcas "útil / no útil" y sin interfaz para decidir hallazgos ni para editar la configuración y los objetivos KPI (la API existe) | Los hallazgos solo se ven en el dashboard | F3 (siguiente paso) |
+| TD-21 | F3 | Monitoreo, incidentes, políticas, aplicación/email y resúmenes implementados. Pendientes piloto de entregabilidad, calibración de ruido, feedback útil/no útil y catálogo ampliado del diseño original | Sin SLA real verificado ni medición de utilidad | Piloto F3 |
 | TD-22 | F3 | Umbrales, pesos y piso de estabilidad por defecto sin calibrar con datos reales (complementa TD-01) | Falsos positivos o negativos en el piloto | Piloto de F3 |
 | TD-23 | F2 | Analítica sin conversión de monedas (opcional en ADR-020), alcance de las ventanas estándar 7/14/28 días, anotaciones de cambios, desgloses en vivo ni perfiles KPI editables; p95 sin medir con el dataset de referencia | Vistas menos completas que el plan de F2 | Cierre de F2 |
 | TD-24 | F4 | Sin documentos aprobados ni su búsqueda (`search_approved_documents`, CA-F4-05), ni las herramientas `get_alert_history`, `get_entity_config` y `get_change_log` (esperan a las alertas y al registro de cambios), ni reportes ejecutivos en lote | El asistente responde solo con métricas, hallazgos y salud | F4 (siguiente paso) |

@@ -162,7 +162,7 @@ Eventos mínimos: inicio y cierre de sesión, fallos de login, cambios de rol, a
 | Vercel (PQ-04) | Alojamiento de la SPA, la API y el `tick` | Todos en tránsito; logs | DPA | F1 |
 | Neon (PQ-04) | Base de datos | Todos | DPA | F1 |
 | Google (Workspace) | Identidad del personal | Emails y nombres del personal | Condiciones del Workspace | F1 |
-| Proveedor de email (por decidir) | Alertas | Emails del personal y nombres de cuentas | DPA | F3 |
+| Resend (integración opcional, apagada por defecto) | Alertas autorizadas | Email verificado del personal, conteo y enlace autenticado; sin métricas ni nombres de clientes | DPA y verificación del remitente pendientes antes de habilitar producción | F3 |
 | Proveedor LLM (Anthropic, propuesto) | Copiloto y reportes | Métricas agregadas, sin PII | DPA y retención acordada | F4 |
 
 - **Protección de datos:** la ley aplicable depende de la jurisdicción de la agencia y de sus clientes (RGPD/LOPDGDD en España, LFPDPPP en México, LGPD en Brasil…), por confirmar en PQ-04. Los datos de rendimiento son mayoritariamente agregados, pero hay datos personales del personal y de los actores del registro de actividad. La agencia suele actuar como encargada del tratamiento de sus clientes: los contratos con los clientes deben cubrirlo.
@@ -172,11 +172,13 @@ Eventos mínimos: inicio y cierre de sesión, fallos de login, cambios de rol, a
 
 | Objetivo | MVP |
 |---|---|
-| RPO | ≤ 15 min (PITR de Neon: hasta 7 días en Launch, hasta 30 en Scale; Free solo da 6 h y no sirve para producción) |
-| RTO | ≤ 4 h (restauración de una rama de Neon a un instante) |
-| Backups lógicos | Diarios con `pg_dump` desde un workflow programado de GitHub Actions, cifrados, en almacenamiento fuera de Neon, con 30 días de retención (se monta en F1) |
+| RPO | Objetivo propuesto ≤15 min mediante PITR; plan/ventana y medición pendientes, no garantizados por el nombre del plan |
+| RTO | Objetivo propuesto ≤4 h incluyendo restauración, revisión de accesos y conciliación; sin medición cloud |
+| Backups lógicos | Workflow nocturno preparado pero desactivado; pg_dump cifrado AES-256-GCM antes de salir a S3, recibo/versionado/Object Lock y plantilla de retención 30 días. Fallback cercano a 24 h de RPO |
 | Clave maestra | Respaldada aparte de la BD (copia fuera de Vercel, con su versión). Sin ella, los tokens son irrecuperables por diseño: se reconectan las cuentas |
 | Simulacro | Restauración completa en un entorno aislado al cierre de cada fase, con el tiempo medido y registrado en [TESTING.md](TESTING.md) |
+
+Auditoría 2026-10-26: simulacro sintético local aprobado, restauración cloud pendiente; no existen aún proyectos de staging/producción. Procedimiento, roles y cuarentena en [OPERATIONS.md](OPERATIONS.md). La marca de simulacro exige atestación posterior a las verificaciones; empezar una restauración no acredita recuperación exitosa. El runtime no puede desactivar la cuarentena.
 
 Meta es una fuente secundaria para los hechos de los últimos 37 meses (se pueden volver a descargar), pero **no** para los hallazgos, decisiones, consentimientos ni el registro de auditoría: esos datos dependen solo de los backups.
 
@@ -198,7 +200,7 @@ Meta es una fuente secundaria para los hechos de los últimos 37 meses (se puede
 | F2 | Autorización por cliente en todas las consultas; cuotas de desgloses en vivo; exportaciones CSV auditadas |
 | F2 · estado 2026-10-24 | ✅ alcance por cliente en la analítica (tests por nivel, 404 para lo ajeno) · ✅ exportación CSV auditada y sin fórmulas ejecutables · ⏳ cuotas de desgloses en vivo (aún no hay desgloses en vivo) |
 | F3 | Notificaciones sin datos sensibles; DPA del proveedor de email; simulacro de restauración |
-| F3 · estado 2026-10-24 | ✅ RLS en `health_scores` y `audit_configs`; `finding_events` de solo inserción · ✅ permisos `audit:run` y `audit:configure` con alcance por cliente · ⏳ notificaciones y email (TD-21) · ⏳ simulacro de restauración |
+| F3 · estado 2026-10-26 | ✅ RLS en salud, auditoría y monitoreo; historiales e informes inmutables para el runtime · ✅ permisos con alcance por cliente · ✅ outbox, destinatarios autorizados, revalidación y bloqueo global del email · ✅ simulacro local con manipulación, RLS y cuarentena · ⏳ DPA, entregabilidad/SLA, recuperación cloud y calibración en piloto |
 | F4 | DPA del proveedor LLM; minimización verificada; inventario de herramientas de solo lectura (test); suite de inyección; verificador de cifras; presupuestos y límites; documentos solo `approved` |
 | F4 · estado 2026-10-24 | ✅ inventario de solo lectura y cierre de importaciones sin `meta` ni `optimization` (tests) · ✅ herramientas con RBAC, RLS, alcance por cliente y `ai_processing` · ✅ textos de terceros limpiados y retirados si parecen instrucciones; operador en mensajes de sistema intermedios (tests) · ✅ verificador de cifras y lenguaje (evals deterministas) · ✅ presupuestos por organización, usuario y pregunta con `llm_usage` de solo inserción y bloqueo registrado; límite de preguntas por minuto · ✅ conversaciones privadas por RLS · ✅ salida pintada como texto, sin HTML ni enlaces · ✅ canario: ninguna credencial de Meta en lo enviado al modelo · ⏳ DPA y retención con el proveedor · ⏳ evaluación en vivo de inyección (TD-29) · ⏳ documentos `approved` (TD-24) |
 | F5 | Doble verificación de permisos (token + `user_tasks` + consentimiento); separación de funciones; reautenticación al aprobar; kill switch probado; idempotencia; webhooks firmados; pruebas de escritura solo en sandbox |

@@ -92,6 +92,34 @@
       "when": 1793048092439,
       "tag": "0012_action_center_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793060307472,
+      "tag": "0013_monitoring",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1793060307473,
+      "tag": "0014_monitoring_rls",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1793068067008,
+      "tag": "0015_operations",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1793068067009,
+      "tag": "0016_operations_rls",
+      "breakpoints": true
     }
   ]
 }

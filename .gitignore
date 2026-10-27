@@ -10,3 +10,6 @@ coverage/
 
 # Salida del spike de Meta (datos reales sin sanitizar)
 spike-output/
+.vercel/
+playwright-report/
+test-results/

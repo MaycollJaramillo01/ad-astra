@@ -7,6 +7,8 @@ import { ApiError, api, authClient, getActiveTenant, setActiveTenant } from './a
 import { AssistantPage } from './assistant.tsx';
 import { DashboardPage } from './dashboard.tsx';
 import { ForecastPage } from './forecast.tsx';
+import { MonitoringPage } from './monitoring.tsx';
+import { OperationsPage } from './operations.tsx';
 import { AccountsPage, ClientsPage, ConnectionsPage, ErrorBox } from './pages.tsx';
 
 export function App() {
@@ -33,6 +35,11 @@ export function App() {
         <Route path="/analitica" element={<DashboardPage role={active.role} />} />
         <Route path="/analitica/:level/:id" element={<DashboardPage role={active.role} />} />
         <Route path="/prevision" element={<ForecastPage />} />
+        <Route path="/monitoreo" element={<MonitoringPage role={active.role} />} />
+        {['owner', 'admin'].includes(active.role) && (
+          <Route path="/operaciones" element={<OperationsPage />} />
+        )}
+        <Route path="/monitoreo/:accountId" element={<MonitoringPage role={active.role} />} />
         <Route path="/prevision/:level/:id" element={<ForecastPage />} />
         <Route
           path="/acciones"
@@ -104,6 +111,14 @@ function Shell({
           <NavLink to="/acciones" className={link}>
             Action Center
           </NavLink>
+          <NavLink to="/monitoreo" className={link}>
+            Monitoreo
+          </NavLink>
+          {isAdmin && (
+            <NavLink to="/operaciones" className={link}>
+              Estado técnico
+            </NavLink>
+          )}
           {canUseAi && (
             <NavLink to="/asistente" className={link}>
               Asistente IA

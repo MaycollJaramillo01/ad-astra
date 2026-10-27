@@ -1,5 +1,7 @@
 # Pronóstico y simulación presupuestaria (F6)
 
+La producción mantiene `FORECASTING_ENABLED=false` por defecto. Su activación exige evidencia real de completitud y cobertura, además de aceptación de los límites de los totales correlacionados. Ver [auditoría de preparación](PRODUCTION_READINESS_2026-10-26.md).
+
 Versión 2.0, 2026-10-26. Motores `forecast-1.2.0` y `simulate-2.0.0`. Código en `src/modules/forecasting/`, interfaz en `/prevision`, decisiones de base en [ADR-025](DECISIONS.md#adr-025--pronóstico-y-simulación-modelos-simples-validados-calculados-al-pedirlos).
 
 La capa responde a dos preguntas: qué rango es compatible con el comportamiento reciente si nada cambia y qué resultados son compatibles con un plan de gasto por campaña bajo supuestos explícitos. Calcula gasto, leads y los eventos de conversión disponibles en Meta (p. ej., compras), impresiones, clics y costos derivados. No transforma leads en ventas de CRM ni mezcla eventos, monedas o ventanas de atribución.

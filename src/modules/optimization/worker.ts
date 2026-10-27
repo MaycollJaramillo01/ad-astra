@@ -8,6 +8,7 @@ import { can } from '../../platform/rbac.ts';
 import { findAccount } from '../catalog/accounts.ts';
 import { MetaApiError } from '../meta/client.ts';
 import { ThrottledError } from '../meta/governor.ts';
+import { captureBeforeAction } from '../monitoring/service.ts';
 import type { ActionRow } from './meta.ts';
 import { checkPolicy, configuration, hash, matches, previewOf } from './model.ts';
 import {
@@ -219,6 +220,7 @@ export function createActionHandler(deps: ActionDeps): JobHandler {
             reservedAt: new Date(),
             error: null,
           });
+          await captureBeforeAction(tx, current, final.auth.account);
           await record(tx, next, 'dispatch', {
             previewHash: final.preview.hash,
             before: live,

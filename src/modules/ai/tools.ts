@@ -119,8 +119,13 @@ export async function consentedClients(tx: Tx): Promise<Set<string>> {
   const rows = await tx
     .select({ clientId: clientConsents.clientId })
     .from(clientConsents)
+    .innerJoin(clients, eq(clients.id, clientConsents.clientId))
     .where(
-      and(isNull(clientConsents.revokedAt), sql`'ai_processing' = any(${clientConsents.scope})`),
+      and(
+        eq(clients.status, 'active'),
+        isNull(clientConsents.revokedAt),
+        sql`${clientConsents.grantedAt}<=now() and 'ai_processing' = any(${clientConsents.scope})`,
+      ),
     );
   return new Set(rows.map((r) => r.clientId));
 }

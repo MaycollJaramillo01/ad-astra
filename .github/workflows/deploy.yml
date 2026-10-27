@@ -1,0 +1,102 @@
+name: deploy-controlled
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        type: choice
+        options: [staging, production]
+        required: true
+      operation:
+        type: choice
+        options:
+          [
+            candidate,
+            configure-rollout,
+            start-rollout,
+            approve-stage,
+            complete-rollout,
+            abort-rollout,
+          ]
+        required: true
+      deployment:
+        description: Deployment ID dpl_... para rollout
+        type: string
+      stage:
+        type: choice
+        options: ["0", "1"]
+      reason:
+        description: Ticket y motivo del cambio revisado
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: deploy-${{ inputs.target }}
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    environment: ${{ inputs.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+      OTHER_PROJECT_ID: ${{ vars.OTHER_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      TARGET: ${{ inputs.target }}
+      OPERATION: ${{ inputs.operation }}
+      DEPLOYMENT: ${{ inputs.deployment }}
+      STAGE: ${{ inputs.stage }}
+      CHANGE_REASON: ${{ inputs.reason }}
+      APPROVAL_CONFIGURED: ${{ vars.APPROVAL_CONFIGURED }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Exigir proyecto separado, revisión y CI del mismo commit
+        shell: bash
+        run: |
+          test "$APPROVAL_CONFIGURED" = true
+          test -n "$VERCEL_ORG_ID" && test -n "$VERCEL_PROJECT_ID" && test -n "$OTHER_PROJECT_ID"
+          test "$VERCEL_PROJECT_ID" != "$OTHER_PROJECT_ID"
+          test ${#CHANGE_REASON} -ge 10
+          test "$(gh run list --commit "$GITHUB_SHA" --workflow ci.yml --json conclusion --jq 'any(.[]; .conclusion == "success")')" = true
+          if [ "$OPERATION" != candidate ] && [ "$OPERATION" != configure-rollout ]; then
+            [[ "$DEPLOYMENT" =~ ^dpl_[A-Za-z0-9]+$ ]]
+          fi
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm dlx vercel@54.6.1 pull --yes --environment=production --token="$VERCEL_TOKEN"
+      - name: Migrar con credencial separada del runtime
+        if: inputs.operation == 'candidate'
+        env:
+          DATABASE_URL_OWNER: ${{ secrets.DATABASE_URL_OWNER }}
+          APP_ENV: ${{ inputs.target }}
+          LEGACY_WORKERS_STOPPED: ${{ vars.LEGACY_WORKERS_STOPPED }}
+          OPS_CHANGE_REASON: ${{ inputs.reason }}
+        run: node scripts/migrate.ts
+      - name: Construir y crear candidato sin asignación de dominio
+        if: inputs.operation == 'candidate'
+        shell: bash
+        run: |
+          pnpm dlx vercel@54.6.1 build --prod --token="$VERCEL_TOKEN"
+          pnpm dlx vercel@54.6.1 deploy --prebuilt --prod --skip-domain --token="$VERCEL_TOKEN" > candidate-url.txt
+          echo "Candidato creado. Validar login, /v1/ready y /v1/internal/operations antes de iniciar rollout." >> "$GITHUB_STEP_SUMMARY"
+          cat candidate-url.txt >> "$GITHUB_STEP_SUMMARY"
+      - name: Progresión explícita 5% → 25% → 100%
+        if: inputs.operation != 'candidate'
+        shell: bash
+        run: |
+          case "$OPERATION" in
+            configure-rollout) pnpm dlx vercel@54.6.1 rolling-release configure --enable --advancement-type=manual-approval --stage=5 --stage=25 --token="$VERCEL_TOKEN" ;;
+            start-rollout) pnpm dlx vercel@54.6.1 rolling-release start --dpl="$DEPLOYMENT" --yes --token="$VERCEL_TOKEN" ;;
+            approve-stage) pnpm dlx vercel@54.6.1 rolling-release approve --dpl="$DEPLOYMENT" --currentStageIndex="$STAGE" --token="$VERCEL_TOKEN" ;;
+            complete-rollout) pnpm dlx vercel@54.6.1 rolling-release complete --dpl="$DEPLOYMENT" --token="$VERCEL_TOKEN" ;;
+            abort-rollout) pnpm dlx vercel@54.6.1 rolling-release abort --dpl="$DEPLOYMENT" --token="$VERCEL_TOKEN" ;;
+            *) exit 1 ;;
+          esac

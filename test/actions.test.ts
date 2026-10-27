@@ -175,6 +175,10 @@ describe('Action Center: contratos, aprobación y ejecución real contra Graph s
       after: { status: 'PAUSED' },
     });
     expect(x.meta.writes).toEqual([{ id: x.a.campaign.metaId, params: { status: 'PAUSED' } }]);
+    const [followup] = await withContext(db, { tenantId: x.a.tenantId }, (tx) =>
+      tx.select().from(s.actionFollowups).where(eq(s.actionFollowups.actionId, p.id)),
+    );
+    expect(followup?.plan).toMatchObject({ actionId: p.id, retrospective: false });
     await x.due();
     await x.tick();
     expect(x.meta.writes).toHaveLength(1);

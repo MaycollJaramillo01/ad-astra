@@ -65,9 +65,7 @@ describe('petición a la API', () => {
     }).generate(request());
     const [call] = f.calls;
     expect(call?.url).toMatch(/\/v1\/messages\?beta=true$/);
-    expect(call?.headers.get('anthropic-beta')).toBe(
-      'server-side-fallback-2026-07-01,thinking-binding-controls-2026-08-01',
-    );
+    expect(call?.headers.get('anthropic-beta')).toBe('thinking-binding-controls-2026-08-01');
     const body = call?.body ?? {};
     expect(body).toMatchObject({
       model: 'claude-opus-5-5',
@@ -77,7 +75,6 @@ describe('petición a la API', () => {
       thinking: { type: 'adaptive', block_binding: { prefix_mismatch_behavior: 'drop_block' } },
       output_config: { effort: 'medium' },
       cache_control: { type: 'ephemeral' },
-      fallbacks: 'default',
     });
     // Sin parámetros de muestreo (400 en los modelos actuales) ni uso forzado de herramientas.
     for (const k of ['temperature', 'top_p', 'top_k']) expect(body).not.toHaveProperty(k);
@@ -166,18 +163,20 @@ describe('respuesta', () => {
     expect(r.costUsd).toBeCloseTo(0.009, 9);
   });
 
-  it('detecta el respaldo del servidor y cobra al precio del modelo que respondió', async () => {
+  it('rechaza un modelo de respaldo no autorizado en lugar de subestimar su costo', async () => {
     const usage = { ...message().usage, iterations: [{ type: 'fallback_message' }] };
     const f = fakeFetch({ body: message({ model: 'claude-opus-5', usage }) });
-    const r = await anthropicProvider({
-      apiKey: FAKE_KEY,
-      model: 'claude-opus-5-5',
-      fetch: f.fetch,
-    }).generate(request());
-    expect(r).toMatchObject({ fallback: true, model: 'claude-opus-5' });
-    expect(r.costUsd).toBeCloseTo(costOf('claude-opus-5', r.usage), 12);
-    // Un modelo sin precio conocido se cobra al más caro, nunca a 0.
-    expect(costOf('modelo-desconocido', r.usage)).toBe(r.costUsd);
+    await expect(
+      anthropicProvider({
+        apiKey: FAKE_KEY,
+        model: 'claude-opus-5-5',
+        fetch: f.fetch,
+      }).generate(request()),
+    ).rejects.toMatchObject({ kind: 'unavailable' });
+    expect(f.calls).toHaveLength(1);
+    expect(() =>
+      costOf('modelo-desconocido', { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }),
+    ).toThrow('Modelo sin tarifa verificada');
   });
 
   it('un rechazo llega como stop_reason refusal', async () => {

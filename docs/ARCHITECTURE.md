@@ -2,6 +2,8 @@
 
 > Versión 0.1 · 2026-10-23 · Estado: **propuesta** (pendiente de validar en F0). Las decisiones citadas están en [DECISIONS.md](DECISIONS.md).
 
+Revisión operativa 2026-10-26: los módulos locales y controles de operación están implementados; cloud sigue pendiente. El estado vinculante, pruebas, límites y deuda se detallan en [PRODUCTION_READINESS_2026-10-26.md](PRODUCTION_READINESS_2026-10-26.md), con [runbook](OPERATIONS.md). La configuración preparada usa tick de 240 s dentro de función de 300 s, sin declarar capacidad productiva por los máximos teóricos del proveedor.
+
 ## 1. Principios arquitectónicos
 
 1. **Monolito modular, no microservicios.** Un repositorio, un lenguaje (TypeScript), una base de datos, una API y un *worker* lógico del mismo código; en Vercel, el worker es una función programada (*tick*, ADR-022). Los módulos tienen fronteras explícitas y pueden extraerse más adelante si una métrica lo justifica (ADR-001).
@@ -348,6 +350,11 @@ Confianza de un componente según la anchura relativa de su intervalo del 80 %: 
 **Persistencia:** una fila diaria por entidad en `health_scores` con `formula_version`, perfil, ventana, puntuación, calificación, cobertura, confianza y componentes (valor, referencia y su fuente, q, s, peso, estado, confianza, n, nota). La web muestra el desglose y la fórmula; un test recalcula cada puntuación desde los componentes guardados.
 
 ### 6.7 Alertas
+
+- **Implementación 2026-10-26:** [monitoreo y seguimiento](MONITORING.md). Incidentes agrupados en tablas `monitoring_*`, independientes de los hallazgos y su historial. Evaluación por cuenta cada 15 min, reglas descriptivas configurables, persistencia, silencio, cooldown, cupos, outbox y canales autorizados. Captura previa del baseline en el Action Center, comparación observacional e informes inmutables. Las reglas Gamma-Poisson y el catálogo ampliado descritos debajo son diseño pendiente; no se afirma que estén implementados ni calibrados.
+- La implementación usa `monitoring_events` además de `audit_log`; `finding_events` continúa siendo el historial de los hallazgos. No se promete un SLA de entrega real sin piloto del proveedor y cron.
+
+Diseño ampliado de referencia:
 
 - Son hallazgos de tipo `alert`, producidos por reglas de monitorización tras cada sincronización incremental.
 - Tipos MVP: CPR disparado (3 d frente a la base de 28 d, prueba Gamma-Poisson, ≥ 5 resultados esperados), caída de resultados (24 h y 72 h frente a los esperados), sin entrega, gasto alto sin resultados, posible fatiga, conexión o sincronización (token inválido, fallos repetidos, datos con más de X h de antigüedad, throttling persistente) y cambios relevantes (presupuesto ±30 %, cambios de estado hechos fuera de la plataforma, según el registro de actividad y los cambios detectados).

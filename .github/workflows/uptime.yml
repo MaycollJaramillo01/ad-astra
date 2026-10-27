@@ -1,0 +1,22 @@
+name: external-health
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    if: vars.OPS_MONITOR_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    environment: production-monitor
+    steps:
+      - name: Comprobar disponibilidad y latido por canal de monitor autorizado
+        env:
+          APP_ORIGIN: ${{ vars.APP_ORIGIN }}
+          OPS_MONITOR_SECRET: ${{ secrets.OPS_MONITOR_SECRET }}
+        run: |
+          test -n "$APP_ORIGIN" && test -n "$OPS_MONITOR_SECRET"
+          curl --fail --silent --show-error --max-time 20 --output /dev/null "$APP_ORIGIN/v1/ready"
+          curl --fail --silent --show-error --max-time 20 --output /dev/null --header "Authorization: Bearer $OPS_MONITOR_SECRET" "$APP_ORIGIN/v1/internal/operations"

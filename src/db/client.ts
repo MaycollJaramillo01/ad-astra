@@ -7,7 +7,20 @@ export type Db = NodePgDatabase<typeof schema>;
 export type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 
 export function createDb(databaseUrl: string): { db: Db; pool: pg.Pool } {
-  const pool = new pg.Pool({ connectionString: databaseUrl, max: 10 });
+  const pool = new pg.Pool({
+    connectionString: databaseUrl,
+    max: 10,
+    connectionTimeoutMillis: 5000,
+    idleTimeoutMillis: 30000,
+    statement_timeout: 30000,
+    idle_in_transaction_session_timeout: 60000,
+    application_name: 'ad-astra',
+  });
+  pool.on('error', () =>
+    process.emitWarning('Conexión Postgres inactiva cerrada; el pool abrirá otra al necesitarla', {
+      code: 'DB_IDLE_CONNECTION',
+    }),
+  );
   return { db: drizzle(pool, { schema }), pool };
 }
 

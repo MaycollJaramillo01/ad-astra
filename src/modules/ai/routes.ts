@@ -31,6 +31,7 @@ import { resolveEntity } from '../audit/engine.routes.ts';
 import { findAccount } from '../catalog/accounts.ts';
 import { ask, listConversations, spending, type TraceEntry } from './assistant.ts';
 import type { LlmProvider } from './provider.ts';
+import { assertConversationAccess } from './scope.ts';
 import { consentedClients } from './tools.ts';
 
 // API del asistente de IA (F4). Preguntar gasta presupuesto: rutas con su propio límite de ritmo.
@@ -152,6 +153,7 @@ export async function aiRoutes(
           .from(aiConversations)
           .where(eq(aiConversations.id, request.params.id));
         if (!c) throw notFound('Conversación');
+        await assertConversationAccess(tx, ctx, c.id);
         const rows = await tx
           .select()
           .from(aiMessages)
@@ -170,9 +172,14 @@ export async function aiRoutes(
     },
     async (request) => {
       const ctx = tenantOf(request);
-      const [row] = await withContext(db, ctx, (tx) =>
-        tx.select().from(aiMessages).where(eq(aiMessages.id, request.params.id)),
-      );
+      const row = await withContext(db, ctx, async (tx) => {
+        const [message] = await tx
+          .select()
+          .from(aiMessages)
+          .where(eq(aiMessages.id, request.params.id));
+        if (message) await assertConversationAccess(tx, ctx, message.conversationId);
+        return message;
+      });
       if (row?.role !== 'assistant') throw notFound('Mensaje');
       const trace = (row.trace as TraceEntry[] | null) ?? [];
       return {
@@ -195,6 +202,7 @@ export async function aiRoutes(
       return withContext(db, ctx, async (tx) => {
         const [row] = await tx.select().from(aiMessages).where(eq(aiMessages.id, id));
         if (row?.role !== 'assistant') throw notFound('Mensaje');
+        await assertConversationAccess(tx, ctx, row.conversationId);
         const answer = row.answer as z.infer<typeof AiAnswerDto> | null;
         const rec = answer?.recommendations[index];
         if (!rec) throw notFound('Recomendación');

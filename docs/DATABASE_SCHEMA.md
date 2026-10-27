@@ -2,9 +2,9 @@
 
 > Versión 0.1 · 2026-10-23 · Estado: **diseño**. El SQL de este documento es un boceto de referencia, no una migración: las migraciones reales se generan y revisan en F1 (ver §7). PostgreSQL 17+.
 
-## 0. Estado de implementación (2026-10-24)
+## 0. Estado de implementación (2026-10-26)
 
-La fuente de verdad es `src/db/schema.ts` más las migraciones de `migrations/` (de `0000` a `0008`): `0000_init.sql` y `0002_sync.sql` (generadas y revisadas; la segunda, retocada a mano para particionar `insights_daily`), y `0001_rls.sql` y `0003_sync_rls.sql` (aislamiento y particiones, escritas a mano). El resto de este documento es el diseño completo; aquí se indica qué existe ya y en qué difiere del boceto.
+La fuente de verdad es `src/db/schema.ts` más las migraciones de `migrations/` (de `0000` a `0016`). Incluyen particiones y RLS, IA, diseños de experimentos, Action Center, monitoreo y operación. El resto de este documento es el diseño completo; aquí se indica qué existe ya y en qué difiere del boceto.
 
 | Implementado | Diferencia con el boceto |
 |---|---|
@@ -28,6 +28,11 @@ La fuente de verdad es `src/db/schema.ts` más las migraciones de `migrations/` 
 | `ai_conversations` (`0007_ai.sql`, `0008_ai_rls.sql`) | Conversación del asistente con proveedor y modelo fijos (el historial nativo solo vale para ellos). **RLS por usuario**: solo la ve quien la creó, aunque otro sea del mismo tenant |
 | `ai_messages` | Un turno = la pregunta (`user`) y la respuesta (`assistant`) con estado, respuesta estructurada, verificación, traza de herramientas, transcripción nativa y resultados pendientes (para reenviar el turno sin cambios), textos retirados por inyección, uso y costo. Hereda la visibilidad de su conversación |
 | `llm_usage` | Una fila por llamada al LLM (también las fallidas), sin contenido: base de los presupuestos. **Solo inserción** como `audit_log` |
+| `deployment_state` (`0015`, `0016`) | Singleton global sin datos de clientes: entorno, versión, cuarentena, heartbeat y evidencias de backup/simulacro. Runtime solo puede actualizar heartbeat; el propietario opera la cuarentena |
+| `jobs.lease_id`, `ai_conversations.access_hash` | UUID por reclamación con fencing; huella de acceso/consentimiento para invalidar conversaciones cuando cambia su alcance |
+| `llm_budget_holds`, `technical_incidents` | Reservas durables de costo y alertas técnicas por organización, ambas con RLS forzado. Las reservas ambiguas siguen consumiendo presupuesto hasta conciliación |
+| Action Center (`0011`, `0012`) | Políticas, propuestas/acciones, aprobaciones, eventos append-only, snapshots y marcadores de envío; ver [ACTION_CENTER.md](ACTION_CENTER.md) |
+| Monitoreo (`0013`, `0014`) | Reglas, incidentes/eventos, ejecuciones, outbox, reportes y seguimiento; ver [MONITORING.md](MONITORING.md) |
 | Pendiente (F1 resto, F3, F4) | `meta_api_calls`, `creatives`, `entity_changes`, `meta_activities`, `notification_*`, `documents`, `document_chunks`, `reports` |
 
 ## 1. Convenciones
@@ -436,6 +441,8 @@ create table kpi_profile_overrides (
 ```
 
 ### 3.7 Auditoría, salud y alertas (F3)
+
+La implementación de monitoreo de 2026-10-26 usa `monitoring_policies`, `monitoring_incidents`, `monitoring_events`, `monitoring_runs`, `monitoring_deliveries`, `monitoring_reports` y `action_followups`, con las migraciones 0013–0014. Sus claves, RLS e inmutabilidad se documentan en [MONITORING](MONITORING.md). Los bloques `notification_policies` y `notifications` siguientes son el diseño original de referencia, no las tablas implementadas.
 
 ```sql
 create table rule_configs (

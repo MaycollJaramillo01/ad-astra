@@ -1,0 +1,56 @@
+name: encrypted-backup
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: backup-production
+  cancel-in-progress: false
+jobs:
+  backup:
+    if: vars.BACKUPS_ENABLED == 'true'
+    environment: production-backup
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Cliente PostgreSQL 17
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client-17
+          echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
+      - uses: aws-actions/configure-aws-credentials@cabfdba3510de1431bac9dba27511d97497fc100
+        with:
+          role-to-assume: ${{ vars.BACKUP_AWS_ROLE_ARN }}
+          aws-region: ${{ vars.BACKUP_AWS_REGION }}
+      - name: Cifrar y subir a almacenamiento privado versionado
+        env:
+          APP_ENV: production
+          BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          BACKUP_DIRECTORY: spike-output/backups
+          BACKUP_BUCKET: ${{ vars.BACKUP_BUCKET }}
+        run: |
+          test -n "$BACKUP_BUCKET"
+          pnpm ops:backup
+          for archive in spike-output/backups/*.aab; do
+            name=$(basename "$archive")
+            sha=$(jq -r .sha256 "$archive.json")
+            aws s3 cp "$archive" "s3://$BACKUP_BUCKET/ad-astra/production/$name" --metadata "sha256=$sha" --sse AES256 --only-show-errors
+            aws s3 cp "$archive.json" "s3://$BACKUP_BUCKET/ad-astra/production/$name.json" --sse AES256 --only-show-errors
+            aws s3api head-object --bucket "$BACKUP_BUCKET" --key "ad-astra/production/$name" > "$archive.receipt.json"
+            BACKUP_EVIDENCE_FILE="$archive.json" BACKUP_RECEIPT_FILE="$archive.receipt.json" node scripts/backup.ts attest
+          done
+      # Nunca subir dumps, claves o sesiones a los artifacts de GitHub.

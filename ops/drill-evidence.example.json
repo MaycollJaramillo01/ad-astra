@@ -1,0 +1,15 @@
+{
+  "at": "",
+  "synthetic": true,
+  "runtimeRlsVerified": false,
+  "encryptedCredentialRoundtrip": false,
+  "tamperRejectedBeforeSql": false,
+  "quarantineVerified": false,
+  "workerFencingVerified": false,
+  "recoveryClaimBlocked": false,
+  "productionRpoVerified": false,
+  "productionRtoVerified": false,
+  "recovery": { "sourceEnvironment": "production", "archiveSha256": "" },
+  "changeTicket": "",
+  "evidenceLocation": ""
+}

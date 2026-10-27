@@ -2,6 +2,8 @@
 
 > Versión 0.1 · 2026-10-23. Las pruebas son parte de la definición de terminado ([MASTER_PLAN §11](MASTER_PLAN.md#11-principios-de-ingeniería-y-reglas-de-ejecución)). Los criterios de aceptación de cada fase están en [ROADMAP.md](ROADMAP.md) (identificadores `CA-Fx-nn`).
 
+Auditoría 2026-10-26: **346 pruebas/37 archivos, 5 E2E**, carga local y simulacro de recuperación. Evidencia, criterios pendientes y límites en [PRODUCTION_READINESS_2026-10-26.md](PRODUCTION_READINESS_2026-10-26.md). Proveedores externos, despliegue cloud y callback Google real no se sustituyen por estas pruebas.
+
 ## 1. Principios
 
 1. **Sin credenciales reales en pruebas automatizadas ni en la CI.** Las pruebas contra Meta real son manuales, autorizadas explícitamente y registradas (§9).
@@ -19,11 +21,11 @@
 | Integración | Postgres real (roles, RLS, FK compuestas; más adelante upserts, particiones y el `tick`) y API con Fastify `inject`. La identidad se sustituye por una cabecera de test; todo lo demás es real | Vitest + BD `ad_astra_test` (Docker en el puerto 55432 o servicio de la CI), migrada y vaciada al empezar | Cada PR |
 | Contrato con Meta | Campos pedidos ⊆ specs de la versión fijada; parseo de fixtures v26 sanitizadas; respuestas de error | Vitest + snapshot de `api_specs` + `fetch` inyectado en el cliente | Cada PR |
 | Documentación | Enlaces relativos y anclas entre los documentos de `docs/` | `pnpm docs:check` | Cada PR |
-| Contrato propio | OpenAPI generado frente al anterior (cambios incompatibles); respuestas sin campos secretos | Script en la CI | Cada PR |
+| Contrato propio | OpenAPI generado, schemas de respuesta y respuestas sin campos secretos | Vitest; diff automatizado frente a una versión publicada aún pendiente | Cada PR |
 | Arquitectura | Reglas de dependencia entre módulos (`ai` no importa `meta` ni `optimization`; solo `optimization` escribe en Meta) | Test de grafo de imports | Cada PR |
 | Seguridad | RLS cruzado en todas las tablas, autorización por endpoint, test canario de tokens, cabeceras, límites de peticiones | Vitest + Playwright | Cada PR |
 | End-to-end | Flujos críticos en el navegador | Playwright (+ axe para accesibilidad) | PR a `main` |
-| Rendimiento | p95 de dashboards con el dataset sintético de referencia | Script de carga (autocannon o k6) | Cierre de fase |
+| Rendimiento | p95 frío/caliente de dashboards con dataset sintético de referencia | `pnpm test:load`, HTTP con diez peticiones concurrentes | CI y cierre de fase |
 | Estadística y modelos | Recuperación de parámetros, tasa de falsos positivos, calibración, backtesting | Vitest con semillas | Cada PR (rápidas) y cierre de fase (completas) |
 | Evals de IA (F4) | Exactitud de cifras, lenguaje no causal, cobertura de la pregunta, inyección | Deterministas con un proveedor guionizado (`test/ai.test.ts`, cada PR) y en vivo con el modelo real (`pnpm ai:eval`, manual y autorizada, §10) | Cada PR; en vivo, en cambios de prompt o de modelo y al cierre de fase |
 | Manuales autorizadas | Spike, conciliación con Ads Manager, escrituras en sandbox | Procedimiento §9 | Cuando se planifica |

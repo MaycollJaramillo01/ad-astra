@@ -3,7 +3,8 @@
 Plataforma interna de la agencia para conectar las cuentas publicitarias de Meta autorizadas por los clientes, sincronizar su rendimiento, auditarlas, calificar su salud y alertar de problemas, con optimizaciones solo bajo aprobación humana.
 - Documento rector: [docs/MASTER_PLAN.md](docs/MASTER_PLAN.md)
 - Fases y estado: [docs/ROADMAP.md](docs/ROADMAP.md)
-- Estado actual: **F1 — base del sistema lista** (tenancy, autenticación, RBAC, aislamiento y modelo de datos). El acceso real a Meta todavía no está implementado.
+- Estado actual: ingesta de Meta, analítica, auditorías, forecasting, Action Center y [monitoreo e informes](docs/MONITORING.md) implementados. La activación de escrituras y correo requiere configuración y autorización; el piloto con cuentas reales sigue pendiente.
+- [Auditoría y preparación para producción](docs/PRODUCTION_READINESS_2026-10-26.md): no listo para producción; [operación y recuperación](docs/OPERATIONS.md) y [modelo de costos](docs/OPERATING_COSTS.md). Staging y producción aún no están provisionados.
 
 ## Requisitos
 
@@ -33,7 +34,14 @@ pnpm db:migrate
 pnpm admin:bootstrap --name "Mi Agencia" --slug mi-agencia --owner persona@agencia.com
 ```
 
-3. Arranca la API y la web, cada una en su terminal, y abre http://localhost:5173:
+3. Vincula la base al entorno antes de arrancar. Define `APP_ENV=development` en `.env.local`; configura `OPS_AUDIT_TENANT_ID` con el UUID de la organización creada y `OPS_CHANGE_REASON` con el motivo de esta puesta en marcha (al menos 10 caracteres). Las migraciones dejan la base en cuarentena hasta liberarla:
+
+```bash
+pnpm ops:control bind
+pnpm ops:control release
+```
+
+4. Arranca la API y la web, cada una en su terminal, y abre http://localhost:5173:
 
 ```bash
 pnpm dev:api
@@ -45,7 +53,7 @@ pnpm dev:web
 
 El login necesita un cliente OAuth de Google Cloud de tipo "Aplicación web", con la pantalla de consentimiento en modo **Internal** y la URI de redirección `http://localhost:5173/v1/auth/callback/google` (detalles en `.env.example`).
 
-**Sincronización con Meta (opcional).** Con `META_APP_ID` y `META_APP_SECRET` en `.env.local`, el worker procesa la cola cada minuto (`--once` para un solo ciclo). Sin ellas se niega a arrancar: nunca simula datos.
+**Sincronización con Meta (opcional).** Con `META_APP_ID` y `META_APP_SECRET` en `.env.local`, el worker procesa la cola cada minuto (`--once` para un solo ciclo). Sin ellas mantiene heartbeat y tareas locales de operación; los trabajos de sincronización se posponen, sin simular datos.
 
 ```bash
 pnpm dev:worker

@@ -14,6 +14,9 @@ export default async function setup() {
     await client.query(
       `truncate table ${rows.map((r) => r.name).join(', ')} restart identity cascade`,
     );
+    await client.query(
+      "insert into deployment_state(id,environment,schema_version,recovery_mode) values(1,'test',16,false)",
+    );
   } finally {
     await client.end();
   }

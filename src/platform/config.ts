@@ -33,6 +33,17 @@ const optional = <T extends z.ZodType>(type: T) =>
 const schema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+    APP_ENV: z.enum(['development', 'test', 'staging', 'production']).default('development'),
+    WRITE_TENANT_ALLOWLIST: z
+      .string()
+      .default('')
+      .transform((v) =>
+        v
+          .split(',')
+          .map((x) => x.trim())
+          .filter(Boolean),
+      )
+      .pipe(z.array(z.uuid())),
     PORT: z.coerce.number().int().positive().default(3000),
     LOG_LEVEL: z
       .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
@@ -55,14 +66,26 @@ const schema = z
     META_APP_SECRET: optional(z.string().min(16)),
     /** Secreto con el que Vercel Cron llama al tick (Authorization: Bearer …). Sin él, no hay tick HTTP. */
     CRON_SECRET: optional(z.string().min(32, 'mínimo 32 caracteres')),
+    OPS_MONITOR_SECRET: optional(z.string().min(32)),
     /** Plazo de cada tick: menor que la duración máxima de la función en Vercel. */
     TICK_BUDGET_SECONDS: z.coerce.number().int().positive().default(240),
     TICK_CONCURRENCY: z.coerce.number().int().min(1).max(10).default(3),
+    ANALYTICS_CACHE_MS: z.coerce.number().int().min(0).max(30000).default(0),
+    FORECASTING_ENABLED: z
+      .enum(['true', 'false'])
+      .default('true')
+      .transform((v) => v === 'true'),
     /** Interruptor global de escritura: debe habilitarse explícitamente, también en el worker. */
     META_WRITES_ENABLED: z
       .enum(['true', 'false'])
       .default('false')
       .transform((v) => v === 'true'),
+    NOTIFICATIONS_EMAIL_ENABLED: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((v) => v === 'true'),
+    RESEND_API_KEY: optional(z.string().min(20)),
+    NOTIFICATIONS_FROM: optional(z.email()),
     /** Asistente de IA (F4). Sin clave, sus rutas responden 503: nunca se simula una respuesta. */
     ANTHROPIC_API_KEY: optional(z.string().min(20)),
     AI_PROVIDER: z.enum(['anthropic']).default('anthropic'),
@@ -78,12 +101,35 @@ const schema = z
   .refine((c) => c.TOKEN_ENCRYPTION_KEYS.has(c.TOKEN_ENCRYPTION_KEY_VERSION), {
     path: ['TOKEN_ENCRYPTION_KEY_VERSION'],
     message: 'la versión activa no está en TOKEN_ENCRYPTION_KEYS',
+  })
+  .superRefine((c, ctx) => {
+    if (c.NODE_ENV === 'production' && !['staging', 'production'].includes(c.APP_ENV))
+      ctx.addIssue({
+        code: 'custom',
+        path: ['APP_ENV'],
+        message: 'El runtime de producción requiere staging o production explícito.',
+      });
+    if (c.NODE_ENV === 'production' && !c.APP_ORIGIN.startsWith('https://'))
+      ctx.addIssue({ code: 'custom', path: ['APP_ORIGIN'], message: 'HTTPS obligatorio.' });
+    if (c.APP_ENV === 'staging' && (c.META_WRITES_ENABLED || c.NOTIFICATIONS_EMAIL_ENABLED))
+      ctx.addIssue({
+        code: 'custom',
+        path: ['APP_ENV'],
+        message:
+          'Staging permanece sin efectos externos; usar pruebas simuladas y una promoción controlada.',
+      });
   });
 
 export type Config = z.infer<typeof schema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const result = schema.safeParse(env);
+  const result = schema.safeParse({
+    ...env,
+    APP_ENV: env.APP_ENV ?? (env.NODE_ENV === 'test' ? 'test' : undefined),
+    ANALYTICS_CACHE_MS: env.ANALYTICS_CACHE_MS ?? (env.NODE_ENV === 'production' ? '15000' : '0'),
+    FORECASTING_ENABLED:
+      env.FORECASTING_ENABLED ?? (env.APP_ENV === 'production' ? 'false' : 'true'),
+  });
   if (!result.success) {
     const problems = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`);
     throw new Error(`Configuración inválida:\n- ${problems.join('\n- ')}`);

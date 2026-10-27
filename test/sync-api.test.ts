@@ -131,8 +131,8 @@ describe('tick HTTP', () => {
     expect((await call()).statusCode).toBe(401);
     expect((await call(`Bearer ${SECRET}x`)).statusCode).toBe(401);
     const res = await call(`Bearer ${SECRET}`);
-    expect(res.statusCode).toBe(503);
-    expect(res.json()).toMatchObject({ detail: 'Falta META_APP_ID o META_APP_SECRET' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().outcomes.done).toBeDefined();
     expect(withCron.logs()).not.toContain(SECRET);
     await withCron.app.close();
   });
