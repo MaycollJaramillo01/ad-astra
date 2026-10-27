@@ -1,5 +1,7 @@
 # Despliegue inicial de staging — 2026-10-26
 
+**Actualización posterior a la captura de configuración pendiente:** Neon de staging está provisionado con roles separados y migraciones 0016. El usuario confirmó que no tiene Workspace; el nuevo acceso usa `AUTH_MODE=password` y una cuenta inicial invitada. Controles en [AUTHENTICATION.md](AUTHENTICATION.md). Los pendientes OAuth de este registro original corresponden al modo Workspace y no impiden el nuevo modo explícito de credenciales.
+
 Repositorio: [MaycollJaramillo01/ad-astra](https://github.com/MaycollJaramillo01/ad-astra), rama `main`. El primer commit publicado en esta entrega es `f801ab2`, con monitoreo y controles operativos. Las correcciones de despliegue se publican después sobre esa misma rama.
 
 Proyecto Vercel: `ad-astra-staging`, en el equipo `maycolljaramillo01s-projects` (Pro existente), vinculado al repositorio. URL estable: [ad-astra-staging-six.vercel.app](https://ad-astra-staging-six.vercel.app). Región inicial del build y función: iad1. La separación regional con Neon se decidirá al provisionar la base.

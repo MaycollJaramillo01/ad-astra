@@ -10,10 +10,36 @@ type Fixture = {
   ownerId: string;
   viewerId: string;
   cookies: Record<string, string>;
+  passwordLogin: { email: string; password: string };
 };
 let f: Fixture;
 test.beforeAll(async () => {
   f = JSON.parse(await readFile('spike-output/readiness/browser.json', 'utf8'));
+});
+
+test('acceso con contraseña, cambio de clave y sesión renovada en navegador', async ({
+  context,
+  page,
+}) => {
+  await context.clearCookies();
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Ad Astra', exact: true })).toBeVisible();
+  await page.getByLabel('Correo', { exact: true }).fill(f.passwordLogin.email);
+  await page.getByLabel('Contraseña', { exact: true }).fill(f.passwordLogin.password);
+  await page.getByRole('button', { name: 'Iniciar sesión', exact: true }).click();
+  await page.getByRole('link', { name: 'Mi cuenta', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Mi cuenta', exact: true })).toBeVisible();
+  await page.getByLabel('Contraseña actual', { exact: true }).fill(f.passwordLogin.password);
+  await page
+    .getByLabel('Nueva contraseña', { exact: true })
+    .fill('contraseña-solo-prueba-e2e-2026');
+  await page
+    .getByLabel('Confirmar contraseña', { exact: true })
+    .fill('contraseña-solo-prueba-e2e-2026');
+  await page.getByRole('button', { name: 'Cambiar contraseña', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Contraseña actualizada');
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Mi cuenta', exact: true })).toBeVisible();
 });
 test.beforeEach(async ({ context, page }) => {
   await context.addCookies([

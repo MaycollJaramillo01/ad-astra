@@ -1,7 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
+import { type FormEvent, type ReactNode, useState } from 'react';
 import { Navigate, NavLink, Route, Routes } from 'react-router';
 import type { Me } from '../../src/contracts.ts';
+import { AccountPage } from './account.tsx';
 import { ActionCenterPage } from './actions.tsx';
 import { ApiError, api, authClient, getActiveTenant, setActiveTenant } from './api.ts';
 import { AssistantPage } from './assistant.tsx';
@@ -12,7 +13,11 @@ import { OperationsPage } from './operations.tsx';
 import { AccountsPage, ClientsPage, ConnectionsPage, ErrorBox } from './pages.tsx';
 
 export function App() {
-  const me = useQuery({ queryKey: ['me'], queryFn: () => api<Me>('/v1/me') });
+  const me = useQuery({
+    queryKey: ['me'],
+    queryFn: () => api<Me>('/v1/me'),
+    retry: (attempt, error) => !(error instanceof ApiError && error.status === 401) && attempt < 2,
+  });
 
   if (me.isPending) return <p className="p-6 text-sm text-gray-500">Cargando…</p>;
   if (me.error instanceof ApiError && me.error.status === 401) return <Login />;
@@ -53,6 +58,7 @@ export function App() {
         <Route path="/clientes" element={<ClientsPage role={active.role} />} />
         <Route path="/cuentas" element={<AccountsPage role={active.role} />} />
         <Route path="/conexiones" element={<ConnectionsPage role={active.role} />} />
+        <Route path="/cuenta" element={<AccountPage />} />
         <Route path="*" element={<p>Página no encontrada.</p>} />
       </Routes>
     </Shell>
@@ -136,6 +142,9 @@ function Shell({
             </NavLink>
           )}
         </nav>
+        <NavLink to="/cuenta" className={link}>
+          Mi cuenta
+        </NavLink>
         <span className="ml-auto text-sm text-gray-500">{me.user.email}</span>
         <button
           type="button"
@@ -155,18 +164,87 @@ function Shell({
 }
 
 function Login() {
+  const options = useQuery({
+    queryKey: ['access-options'],
+    queryFn: () => api<{ mode: 'workspace' | 'password' }>('/v1/access-options'),
+  });
+  const [email, setEmail] = useState(''),
+    [password, setPassword] = useState(''),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState<string | null>(null);
+  async function signIn(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await authClient.signIn.email({ email, password, rememberMe: false });
+      setPassword('');
+      if (result.error)
+        setError('No se pudo iniciar sesión. Revisa tus credenciales o consulta al administrador.');
+      else window.location.assign('/');
+    } catch {
+      setError('No se pudo conectar. Inténtalo de nuevo.');
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <main className="flex min-h-screen items-center justify-center bg-gray-50 p-4 dark:bg-gray-950">
       <div className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
         <h1 className="mb-1 text-xl font-semibold">Ad Astra</h1>
-        <p className="mb-6 text-sm text-gray-500">Accede con tu cuenta de Google de la agencia.</p>
-        <button
-          type="button"
-          className="w-full rounded bg-gray-900 px-4 py-2 text-white hover:bg-gray-700 dark:bg-white dark:text-gray-900"
-          onClick={() => void authClient.signIn.social({ provider: 'google', callbackURL: '/' })}
-        >
-          Continuar con Google
-        </button>
+        <p className="mb-6 text-sm text-gray-500">Acceso privado a tu organización.</p>
+        {options.isPending && <p role="status">Cargando acceso…</p>}
+        {options.error && <ErrorBox error={options.error} />}
+        {options.data?.mode === 'password' && (
+          <form onSubmit={signIn} className="space-y-4">
+            <label className="block text-sm">
+              Correo
+              <input
+                className="mt-1 w-full rounded border border-gray-300 bg-transparent p-2"
+                type="email"
+                autoComplete="username"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </label>
+            <label className="block text-sm">
+              Contraseña
+              <input
+                className="mt-1 w-full rounded border border-gray-300 bg-transparent p-2"
+                type="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </label>
+            {error && (
+              <p role="alert" className="text-sm text-red-700">
+                {error}
+              </p>
+            )}
+            <button
+              disabled={busy}
+              className="w-full rounded bg-gray-900 px-4 py-2 text-white disabled:opacity-50 dark:bg-white dark:text-gray-900"
+              type="submit"
+            >
+              {busy ? 'Entrando…' : 'Iniciar sesión'}
+            </button>
+            <p className="text-xs text-gray-500">
+              Solo cuentas invitadas. Para recuperar el acceso, contacta al administrador.
+            </p>
+          </form>
+        )}
+        {options.data?.mode === 'workspace' && (
+          <button
+            type="button"
+            className="w-full rounded bg-gray-900 px-4 py-2 text-white hover:bg-gray-700 dark:bg-white dark:text-gray-900"
+            onClick={() => void authClient.signIn.social({ provider: 'google', callbackURL: '/' })}
+          >
+            Continuar con Google
+          </button>
+        )}
       </div>
     </main>
   );

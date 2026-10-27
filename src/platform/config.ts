@@ -34,6 +34,7 @@ const schema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     APP_ENV: z.enum(['development', 'test', 'staging', 'production']).default('development'),
+    AUTH_MODE: z.enum(['workspace', 'password']).default('workspace'),
     WRITE_TENANT_ALLOWLIST: z
       .string()
       .default('')
@@ -53,12 +54,14 @@ const schema = z
     /** Conexión con el rol app_rw (sin DDL, con RLS). */
     DATABASE_URL: z.string().regex(/^postgres(ql)?:\/\//, 'debe ser una URL postgres://'),
     BETTER_AUTH_SECRET: z.string().min(32, 'mínimo 32 caracteres'),
-    GOOGLE_CLIENT_ID: z.string().min(1),
-    GOOGLE_CLIENT_SECRET: z.string().min(1),
+    GOOGLE_CLIENT_ID: z.string().default(''),
+    GOOGLE_CLIENT_SECRET: z.string().default(''),
     /** Dominio del Google Workspace de la agencia (ADR-019). */
     GOOGLE_WORKSPACE_DOMAIN: z
       .string()
-      .regex(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/, 'dominio en minúsculas, p. ej. agencia.com'),
+      .regex(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/, 'dominio en minúsculas, p. ej. agencia.com')
+      .or(z.literal(''))
+      .default(''),
     TOKEN_ENCRYPTION_KEYS: keyRing,
     TOKEN_ENCRYPTION_KEY_VERSION: z.coerce.number().int().positive(),
     /** App de Meta de la agencia. Sin ellas no se sincroniza nada (el tick responde 503). */
@@ -103,6 +106,15 @@ const schema = z
     message: 'la versión activa no está en TOKEN_ENCRYPTION_KEYS',
   })
   .superRefine((c, ctx) => {
+    if (c.AUTH_MODE === 'workspace') {
+      for (const key of [
+        'GOOGLE_CLIENT_ID',
+        'GOOGLE_CLIENT_SECRET',
+        'GOOGLE_WORKSPACE_DOMAIN',
+      ] as const)
+        if (!c[key].trim())
+          ctx.addIssue({ code: 'custom', path: [key], message: 'Obligatorio para Workspace.' });
+    }
     if (c.NODE_ENV === 'production' && !['staging', 'production'].includes(c.APP_ENV))
       ctx.addIssue({
         code: 'custom',

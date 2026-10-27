@@ -90,8 +90,18 @@ export async function buildApp({
   registerErrorHandling(app);
 
   const auth = createAuth(config, db);
-  registerAccessControl(app, db, authenticate ?? sessionAuthenticator(auth), config.APP_ORIGIN);
+  registerAccessControl(
+    app,
+    db,
+    authenticate ?? sessionAuthenticator(auth, config.AUTH_MODE),
+    config.APP_ORIGIN,
+  );
   registerAuthRoutes(app, auth, config.APP_ORIGIN);
+  app.get(
+    '/v1/access-options',
+    { config: { access: { public: true } }, schema: { hide: true } },
+    async () => ({ mode: config.AUTH_MODE }),
+  );
   app.addHook('preHandler', async (request) => {
     if (request.tenant || request.routeOptions.url === '/v1/auth/*')
       await assertDeployment(db, config);

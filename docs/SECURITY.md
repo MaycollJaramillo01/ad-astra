@@ -1,5 +1,7 @@
 # Seguridad — Ad Astra
 
+Actualización de staging 2026-10-26: el usuario no dispone de Workspace. [ADR-028](DECISIONS.md#adr-028--staging-sin-workspace-credenciales-provisionadas-por-invitación) permite allí un modo explícito de contraseña por invitación, sin signup público ni afirmación de buzón verificado. Workspace conserva los controles siguientes. MFA, recuperación y aceptación de esta modalidad en producción permanecen pendientes; [detalles](AUTHENTICATION.md).
+
 > Versión 0.1 · 2026-10-23. Referencia de controles: OWASP ASVS nivel 2 y OWASP Top 10 para aplicaciones LLM (2025). Este documento es vinculante: un control marcado como obligatorio no se simplifica sin un ADR aprobado.
 
 ## 1. Objetivos y alcance

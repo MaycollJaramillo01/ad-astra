@@ -5,7 +5,7 @@ Plataforma interna de la agencia para conectar las cuentas publicitarias de Meta
 - Fases y estado: [docs/ROADMAP.md](docs/ROADMAP.md)
 - Estado actual: ingesta de Meta, analítica, auditorías, forecasting, Action Center y [monitoreo e informes](docs/MONITORING.md) implementados. La activación de escrituras y correo requiere configuración y autorización; el piloto con cuentas reales sigue pendiente.
 - [Auditoría y preparación para producción](docs/PRODUCTION_READINESS_2026-10-26.md): no listo para producción; [operación y recuperación](docs/OPERATIONS.md) y [modelo de costos](docs/OPERATING_COSTS.md).
-- [Staging inicial en Vercel](https://ad-astra-staging-six.vercel.app): archivos desplegados; acceso y datos pendientes de Neon, OAuth y secretos cloud. [Estado de este despliegue](docs/DEPLOYMENT_2026-10-26.md).
+- [Staging en Vercel](https://ad-astra-staging-six.vercel.app): Neon independiente y acceso por contraseña provisionada, sin Workspace. Las cuentas Meta se conectan con autorización. [Estado del despliegue](docs/DEPLOYMENT_2026-10-26.md) y [autenticación](docs/AUTHENTICATION.md).
 
 ## Requisitos
 

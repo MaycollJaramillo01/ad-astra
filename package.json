@@ -16,6 +16,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file-if-exists=.env.local scripts/migrate.ts",
     "admin:bootstrap": "node --env-file-if-exists=.env.local scripts/bootstrap.ts",
+    "admin:password-user": "node --env-file-if-exists=.env.local scripts/provision-password-user.ts",
     "lint": "biome check .",
     "format": "biome check --write .",
     "test": "vitest run",

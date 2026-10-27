@@ -8,7 +8,7 @@ import { authAccounts, authSessions, authUsers, authVerifications } from '../db/
 import { activateMemberships, canSignUp } from './access.ts';
 import type { Config } from './config.ts';
 
-// Autenticación del personal con Google Workspace (ADR-019). Sin contraseñas locales.
+// Autenticación del personal: Workspace o credenciales provisionadas por operador (sin alta pública).
 //   - `hd`: Better Auth pide a Google el dominio y rechaza tokens sin ese claim `hd`.
 //   - Hooks: alta solo con invitación y dominio correcto; sesión solo con membresía.
 
@@ -28,13 +28,27 @@ export function createAuth(config: Config, db: Db) {
         verification: authVerifications,
       },
     }),
-    emailAndPassword: { enabled: false },
-    socialProviders: {
-      google: {
-        clientId: config.GOOGLE_CLIENT_ID,
-        clientSecret: config.GOOGLE_CLIENT_SECRET,
-        hd: config.GOOGLE_WORKSPACE_DOMAIN,
-      },
+    emailAndPassword: {
+      enabled: config.AUTH_MODE === 'password',
+      disableSignUp: true,
+      minPasswordLength: 14,
+      maxPasswordLength: 128,
+    },
+    socialProviders:
+      config.AUTH_MODE === 'workspace'
+        ? {
+            google: {
+              clientId: config.GOOGLE_CLIENT_ID,
+              clientSecret: config.GOOGLE_CLIENT_SECRET,
+              hd: config.GOOGLE_WORKSPACE_DOMAIN,
+            },
+          }
+        : {},
+    rateLimit: {
+      enabled: true,
+      window: 60,
+      max: 60,
+      customRules: { '/sign-in/email': { window: 60, max: 5 } },
     },
     account: { encryptOAuthTokens: true }, // los tokens OAuth de Google no quedan en claro en la BD
     session: { expiresIn: 60 * 60 * 24 * 7, updateAge: 60 * 60 * 24 },
@@ -59,7 +73,8 @@ export function createAuth(config: Config, db: Db) {
               .select({ verified: authUsers.emailVerified })
               .from(authUsers)
               .where(eq(authUsers.id, session.userId));
-            return user?.verified && (await activateMemberships(db, session.userId))
+            return (config.AUTH_MODE === 'password' || user?.verified) &&
+              (await activateMemberships(db, session.userId))
               ? undefined
               : false;
           },
@@ -80,10 +95,10 @@ export interface Identity {
 export type Authenticate = (request: FastifyRequest) => Promise<Identity | null>;
 
 export const sessionAuthenticator =
-  (auth: Auth): Authenticate =>
+  (auth: Auth, mode: Config['AUTH_MODE'] = 'workspace'): Authenticate =>
   async (request) => {
     const session = await auth.api.getSession({ headers: fromNodeHeaders(request.headers) });
-    return session?.user.emailVerified
+    return session && (mode === 'password' || session.user.emailVerified)
       ? { userId: session.user.id, email: session.user.email }
       : null;
   };

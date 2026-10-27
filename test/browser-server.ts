@@ -1,5 +1,6 @@
 import { createHmac, randomBytes } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { hashPassword } from 'better-auth/crypto';
 import { sql } from 'drizzle-orm';
 import { testEnv } from './env.ts';
 
@@ -22,6 +23,14 @@ const db = testDb(),
   a = await seedTenant(db, 'browser-a'),
   b = await seedTenant(db, 'browser-b'),
   viewer = await addMember(db, a.tenantId, 'viewer', [a.client.id]);
+const passwordUser = await addMember(db, a.tenantId, 'manager', [a.client.id]),
+  passwordLogin = { email: passwordUser.email, password: randomBytes(24).toString('base64url') };
+await db.insert(s.authAccounts).values({
+  providerId: 'credential',
+  accountId: passwordUser.id,
+  userId: passwordUser.id,
+  password: await hashPassword(passwordLogin.password),
+});
 const count = Number(process.env.E2E_ACCOUNT_COUNT ?? 1);
 if (!Number.isInteger(count) || count < 1 || count > 50)
   throw new Error('Dataset de prueba fuera de límite');
@@ -134,12 +143,16 @@ await writeFile(
     ownerId: a.owner.id,
     viewerId: viewer.id,
     cookies,
+    passwordLogin,
     accounts: count,
     days: 395,
   }),
   { mode: 0o600 },
 );
-const t = await testApp({ realAuth: true, config: { ANALYTICS_CACHE_MS: 15000 } });
+const t = await testApp({
+  realAuth: true,
+  config: { ANALYTICS_CACHE_MS: 15000, AUTH_MODE: 'password' },
+});
 await t.app.listen({ host: '127.0.0.1', port: Number(process.env.TEST_SERVER_PORT ?? 3000) });
 process.once('SIGTERM', () => {
   void t.app.close().then(() => process.exit(0));

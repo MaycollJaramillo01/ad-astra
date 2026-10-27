@@ -20,6 +20,17 @@ it('acepta un entorno válido y aplica valores por defecto', () => {
   expect(c.TOKEN_ENCRYPTION_KEYS.get(1)?.length).toBe(32);
 });
 
+it('password es explícito y no requiere Workspace; el modo por defecto conserva esa exigencia', () => {
+  const withoutGoogle = {
+    ...valid,
+    GOOGLE_CLIENT_ID: '',
+    GOOGLE_CLIENT_SECRET: '',
+    GOOGLE_WORKSPACE_DOMAIN: '',
+  };
+  expect(loadConfig({ ...withoutGoogle, AUTH_MODE: 'password' }).AUTH_MODE).toBe('password');
+  expect(() => loadConfig(withoutGoogle)).toThrow(/GOOGLE_CLIENT_ID/);
+});
+
 it('nombra las variables inválidas sin mostrar sus valores', () => {
   const run = () =>
     loadConfig({

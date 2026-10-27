@@ -291,7 +291,7 @@ export const authAccounts = pgTable('auth_accounts', {
   accessTokenExpiresAt: ts('access_token_expires_at'),
   refreshTokenExpiresAt: ts('refresh_token_expires_at'),
   scope: text('scope'),
-  password: text('password'), // sin uso: no hay contraseñas locales
+  password: text('password'), // hash scrypt de Better Auth, solo en AUTH_MODE=password
   createdAt: createdAt(),
   updatedAt: ts('updated_at').notNull().defaultNow(),
 });
