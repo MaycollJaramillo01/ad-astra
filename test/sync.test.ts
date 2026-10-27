@@ -385,13 +385,14 @@ describe('sincronización de una cuenta', () => {
     expect(adRows.filter((a) => a.deletedAt).map((a) => a.metaId)).toEqual(['3003']);
   });
 
-  it.each([100, 1])(
-    'si Meta pide menos datos (código %i), el rango se parte y llegan todas las filas',
+  it.each([100, 1, 'timeout'] as const)(
+    'si Meta pide menos datos o agota el tiempo (%s), el rango se parte y llegan todas las filas',
     async (code) => {
       const s = await setup();
       await s.connect();
       s.fake.state.maxDays = 7;
-      s.fake.state.maxDaysCode = code;
+      s.fake.state.maxDaysCode = typeof code === 'number' ? code : 100;
+      s.fake.state.maxDaysTimeout = code === 'timeout';
       await s.enable();
       await s.tick();
 

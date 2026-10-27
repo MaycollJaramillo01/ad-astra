@@ -118,11 +118,15 @@ export class MetaApiError extends Error {
 /** Fallo de transporte. El mensaje original puede incluir la URL con el token: se redacta. */
 export class MetaNetworkError extends Error {
   readonly action: ErrorAction = { kind: 'retry' };
+  readonly timedOut: boolean;
   constructor(cause: unknown) {
     super(
       redact(`Fallo de red con Meta: ${cause instanceof Error ? cause.message : String(cause)}`),
     );
     this.name = 'MetaNetworkError';
+    this.timedOut =
+      cause instanceof Error &&
+      (cause.name === 'TimeoutError' || /\btimeout\b|timed out/i.test(cause.message));
   }
 }
 

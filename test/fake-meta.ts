@@ -27,6 +27,7 @@ export function createFakeMeta(opts: { appId: string; appSecret: string }) {
     /** Rango máximo que acepta Insights antes de pedir "menos datos" (100/1487534). */
     maxDays: Number.POSITIVE_INFINITY,
     maxDaysCode: 100,
+    maxDaysTimeout: false,
     /** Gasto por fila: cambiarlo simula que Meta reexpresa los datos. */
     spend: '10.5',
     /** Cabeceras de uso que acompañan a cada respuesta. */
@@ -143,6 +144,8 @@ export function createFakeMeta(opts: { appId: string; appSecret: string }) {
         until: string;
       };
       if (days(since, until).length > state.maxDays) {
+        if (state.maxDaysTimeout)
+          throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
         return error(
           state.maxDaysCode,
           'Please reduce the amount of data you are asking for',
