@@ -28,6 +28,7 @@ it('el token canario no aparece en ningún log', () => {
 });
 
 it('redact limpia parámetros de credenciales y cabeceras Bearer', () => {
+  expect(redact(`fallo nvapi-${'x'.repeat(50)}`)).toBe('fallo [REDACTED]');
   expect(redact('a?client_secret=s3cr3t&x=1')).toBe('a?client_secret=[REDACTED]&x=1');
   expect(redact('input_token=EAAzzz&fb_exchange_token=q')).toBe(
     'input_token=[REDACTED]&fb_exchange_token=[REDACTED]',

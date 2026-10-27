@@ -342,7 +342,7 @@ Contrato mínimo (una sola implementación al principio; la interfaz existe porq
 
 ```ts
 interface LlmProvider {
-  readonly id: string;                         // 'anthropic'
+  readonly id: string;                         // 'anthropic' | 'nvidia'
   readonly capabilities: {
     tools: boolean; structuredOutput: boolean; citations: boolean;
     promptCaching: boolean; batch: boolean; maxContextTokens: number;

@@ -478,6 +478,8 @@ export const AiTraceDto = z.object({
 });
 export const AiStatusDto = z.object({
   enabled: z.boolean(),
+  unavailableReason: z.string().nullable(),
+  costBasis: z.enum(['published_tariff', 'budget_estimate']),
   provider: z.string(),
   model: z.string(),
   effort: z.string(),

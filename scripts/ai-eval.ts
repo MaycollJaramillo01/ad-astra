@@ -33,8 +33,7 @@ const { values } = parseArgs({
 });
 const config = loadConfig();
 const llm = await createProvider(config);
-if (!llm)
-  throw new Error('Falta ANTHROPIC_API_KEY en .env.local: sin proveedor no hay evaluación en vivo');
+if (!llm) throw new Error('Falta la clave de AI_PROVIDER: sin proveedor no hay evaluación en vivo');
 if (!values.tenant || !values.user) throw new Error('Indica --tenant y --user (uuid)');
 const ceiling = QUESTIONS.length * config.AI_QUESTION_BUDGET_USD;
 if (!values.yes) {

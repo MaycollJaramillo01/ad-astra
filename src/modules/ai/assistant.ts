@@ -343,7 +343,7 @@ export async function ask(deps: AssistantDeps, ctx: TenantContext, input: AskInp
       maxTokens: LIMITS.maxTokens,
       effort: config.AI_EFFORT,
     };
-    const reserve = reserveOf(llm.model, req);
+    const reserve = reserveOf(llm.model, req, llm.pricing);
     if (cost + reserve > config.AI_QUESTION_BUDGET_USD) {
       status = 'budget_exhausted';
       break;
@@ -540,6 +540,8 @@ export async function ask(deps: AssistantDeps, ctx: TenantContext, input: AskInp
           tools: trace.map((t) => t.tool),
           injectionFlags: flags.length,
           costUsd: Number(cost.toFixed(6)),
+          costBasis: llm.costBasis ?? 'published_tariff',
+          budgetRates: llm.pricing ?? null,
           model: llm.model,
           promptVersion: PROMPT_VERSION,
         },

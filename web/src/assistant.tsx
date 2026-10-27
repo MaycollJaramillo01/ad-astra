@@ -162,9 +162,15 @@ export function AssistantPage({ role }: { role: Role }) {
           </p>
           {budgets && (
             <p className="text-xs text-gray-500">
-              Gasto de IA este mes: {usd(budgets.spentMonthUsd)} de {usd(budgets.monthlyUsd)} · tuyo
-              hoy: {usd(budgets.spentTodayUsd)} de {usd(budgets.userDailyUsd)} · modelo{' '}
-              {status.data?.model}
+              Uso de presupuesto de IA este mes: {usd(budgets.spentMonthUsd)} de{' '}
+              {usd(budgets.monthlyUsd)} · tuyo hoy: {usd(budgets.spentTodayUsd)} de{' '}
+              {usd(budgets.userDailyUsd)} · modelo {status.data?.model}
+            </p>
+          )}
+          {status.data?.costBasis === 'budget_estimate' && (
+            <p className="text-xs text-gray-500">
+              NVIDIA · valoración interna para controlar el presupuesto; no representa cargos ni una
+              tarifa de NVIDIA.
             </p>
           )}
         </header>
@@ -174,7 +180,7 @@ export function AssistantPage({ role }: { role: Role }) {
             role="status"
             className="rounded border border-gray-300 p-3 text-sm dark:border-gray-700"
           >
-            El asistente no está configurado en este entorno (falta la clave del proveedor de IA).
+            {status.data.unavailableReason ?? 'El asistente no está disponible en este entorno.'}
           </p>
         )}
         {detail.error && <ErrorBox error={detail.error} />}
@@ -426,7 +432,7 @@ function AnswerCard({
       </details>
       <p className="text-xs text-gray-500">
         {formatDateTime(message.createdAt)} · {message.model} · {message.promptVersion}
-        {message.costUsd !== null && ` · costo ${usd(message.costUsd)}`}
+        {message.costUsd !== null && ` · presupuesto estimado ${usd(message.costUsd)}`}
         {message.injectionFlags > 0 &&
           ` · se retiraron ${message.injectionFlags} textos de terceros que parecían instrucciones`}
       </p>

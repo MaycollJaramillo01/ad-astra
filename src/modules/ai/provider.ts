@@ -57,6 +57,9 @@ export interface LlmResult {
 export interface LlmProvider {
   readonly id: string;
   readonly model: string;
+  /** Valoración interna para límites de presupuesto; no implica una tarifa del proveedor. */
+  readonly pricing?: Price;
+  readonly costBasis?: 'published_tariff' | 'budget_estimate';
   generate(req: LlmRequest): Promise<LlmResult>;
 }
 
@@ -72,7 +75,7 @@ export class LlmError extends Error {
 
 // USD por millón de tokens (referencia del SDK, 2026-10). Incluye los modelos a los que el
 // servidor deriva una petición rechazada (`fallbacks: "default"`).
-interface Price {
+export interface Price {
   input: number;
   output: number;
   cacheRead: number;
@@ -85,9 +88,10 @@ export const PRICING: Record<string, Price> = {
   'claude-opus-4-8': { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
 };
 
-export function costOf(model: string, u: LlmUsage): number {
-  const p = PRICING[model];
+export function costOf(model: string, u: LlmUsage, p = PRICING[model]): number {
   if (!p) throw new LlmError('rejected', 'Modelo sin tarifa verificada');
+  if (Object.values(p).some((v) => !Number.isFinite(v) || v < 0))
+    throw new LlmError('rejected', 'Valoración de presupuesto inválida');
   if (Object.values(u).some((v) => !Number.isFinite(v) || v < 0))
     throw new LlmError('unavailable', 'Uso de tokens inválido');
   return (
@@ -103,19 +107,32 @@ export function costOf(model: string, u: LlmUsage): number {
  * Reserva conservadora: bytes UTF-8 más margen de protocolo y salida máxima completa.
  * La entrada se reserva como escritura de caché de 5 min (la tarifa mayor habilitada).
  */
-export function reserveOf(model: string, req: LlmRequest): number {
+export function reserveOf(model: string, req: LlmRequest, pricing?: Price): number {
   const bytes = Buffer.byteLength(JSON.stringify(req), 'utf8') + 1024;
-  return costOf(model, {
-    input: 0,
-    output: req.maxTokens,
-    cacheRead: 0,
-    cacheWrite: bytes,
-  });
+  return costOf(
+    model,
+    {
+      input: 0,
+      output: req.maxTokens,
+      cacheRead: 0,
+      cacheWrite: bytes,
+    },
+    pricing,
+  );
 }
 
 /** Proveedor configurado, o null si falta su clave (la IA queda desactivada, sin simulación). */
 export async function createProvider(config: Config): Promise<LlmProvider | null> {
   switch (config.AI_PROVIDER) {
+    case 'nvidia': {
+      if (!config.NVIDIA_API_KEY) return null;
+      const { nvidiaProvider } = await import('./nvidia.ts');
+      return nvidiaProvider({
+        apiKey: config.NVIDIA_API_KEY,
+        inputBudgetRate: config.NVIDIA_BUDGET_INPUT_USD_PER_MILLION,
+        outputBudgetRate: config.NVIDIA_BUDGET_OUTPUT_USD_PER_MILLION,
+      });
+    }
     case 'anthropic': {
       if (!config.ANTHROPIC_API_KEY) return null;
       const { anthropicProvider } = await import('./anthropic.ts');

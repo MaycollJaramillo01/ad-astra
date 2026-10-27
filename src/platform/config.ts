@@ -91,8 +91,14 @@ const schema = z
     NOTIFICATIONS_FROM: optional(z.email()),
     /** Asistente de IA (F4). Sin clave, sus rutas responden 503: nunca se simula una respuesta. */
     ANTHROPIC_API_KEY: optional(z.string().min(20)),
-    AI_PROVIDER: z.enum(['anthropic']).default('anthropic'),
-    AI_MODEL: z.enum(['claude-opus-5-5', 'claude-sonnet-5-5']).default('claude-opus-5-5'),
+    NVIDIA_API_KEY: optional(z.string().min(20)),
+    AI_PROVIDER: z.enum(['anthropic', 'nvidia']).default('anthropic'),
+    AI_MODEL: z
+      .enum(['claude-opus-5-5', 'claude-sonnet-5-5', 'nvidia/nemotron-3.5-super-vl-120b-a12b'])
+      .default('claude-opus-5-5'),
+    // Tasas INTERNAS de control de presupuesto, no precios ni cargos de NVIDIA.
+    NVIDIA_BUDGET_INPUT_USD_PER_MILLION: z.coerce.number().positive().max(1000).default(4),
+    NVIDIA_BUDGET_OUTPUT_USD_PER_MILLION: z.coerce.number().positive().max(1000).default(20),
     AI_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('medium'),
     /** Límites de costo en USD: por organización y mes, por usuario y día, y por pregunta. */
     AI_MONTHLY_BUDGET_USD: z.coerce.number().nonnegative().default(100),
@@ -106,6 +112,12 @@ const schema = z
     message: 'la versión activa no está en TOKEN_ENCRYPTION_KEYS',
   })
   .superRefine((c, ctx) => {
+    if ((c.AI_PROVIDER === 'nvidia') !== c.AI_MODEL.startsWith('nvidia/'))
+      ctx.addIssue({
+        code: 'custom',
+        path: ['AI_MODEL'],
+        message: 'Modelo incompatible con AI_PROVIDER.',
+      });
     if (c.AUTH_MODE === 'workspace') {
       for (const key of [
         'GOOGLE_CLIENT_ID',
@@ -137,6 +149,9 @@ export type Config = z.infer<typeof schema>;
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const result = schema.safeParse({
     ...env,
+    AI_MODEL:
+      env.AI_MODEL ||
+      (env.AI_PROVIDER === 'nvidia' ? 'nvidia/nemotron-3.5-super-vl-120b-a12b' : undefined),
     APP_ENV: env.APP_ENV ?? (env.NODE_ENV === 'test' ? 'test' : undefined),
     ANALYTICS_CACHE_MS: env.ANALYTICS_CACHE_MS ?? (env.NODE_ENV === 'production' ? '15000' : '0'),
     FORECASTING_ENABLED:

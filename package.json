@@ -30,6 +30,7 @@
     "docs:check": "node scripts/check-docs.ts",
     "spike:meta": "node --env-file-if-exists=.env.local scripts/spike-meta.ts",
     "ai:eval": "node --env-file-if-exists=.env.local scripts/ai-eval.ts",
+    "ai:smoke:nvidia": "node scripts/nvidia-smoke.ts",
     "forecast:experiments": "node scripts/forecast-experiments.ts",
     "specs:update": "node scripts/update-meta-specs.ts"
   },

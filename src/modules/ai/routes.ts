@@ -24,9 +24,10 @@ import {
   recommendations,
 } from '../../db/schema.ts';
 import type { Config } from '../../platform/config.ts';
-import { conflict, notFound } from '../../platform/errors.ts';
+import { AppError, conflict, notFound } from '../../platform/errors.ts';
 import { userEvent } from '../../platform/events.ts';
 import { tenantOf } from '../../platform/http.ts';
+import { assertSideEffects } from '../../platform/operations.ts';
 import { resolveEntity } from '../audit/engine.routes.ts';
 import { findAccount } from '../catalog/accounts.ts';
 import { ask, listConversations, spending, type TraceEntry } from './assistant.ts';
@@ -88,9 +89,23 @@ export async function aiRoutes(
       schema: { response: { 200: AiStatusDto } },
     },
     async (request) => {
-      const spent = await spending(db, tenantOf(request));
+      const ctx = tenantOf(request);
+      const spent = await spending(db, ctx);
+      let unavailableReason: string | null = llm ? null : 'Falta la clave del proveedor de IA.';
+      if (llm) {
+        try {
+          await withContext(db, ctx, (tx) => assertSideEffects(tx, config, ctx.tenantId));
+        } catch (error) {
+          if (!(error instanceof AppError)) throw error;
+          unavailableReason = error.detail ?? error.message;
+        }
+      }
       return {
-        enabled: llm !== null,
+        enabled: llm !== null && unavailableReason === null,
+        unavailableReason,
+        costBasis:
+          llm?.costBasis ??
+          (config.AI_PROVIDER === 'nvidia' ? 'budget_estimate' : 'published_tariff'),
         provider: config.AI_PROVIDER,
         model: llm?.model ?? config.AI_MODEL,
         effort: config.AI_EFFORT,

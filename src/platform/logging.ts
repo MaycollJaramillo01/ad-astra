@@ -14,6 +14,7 @@ export function redact(text: string): string {
     .replace(META_TOKEN, '[REDACTED]')
     .replace(/\bpostgres(?:ql)?:\/\/[^\s/@]+(?::[^\s/@]*)?@/gi, 'postgres://[REDACTED]@')
     .replace(/\bsk-(?:ant|proj)-[A-Za-z0-9_-]+/g, '[REDACTED]')
+    .replace(/\bnvapi-[A-Za-z0-9_-]+/g, '[REDACTED]')
     .replace(/\nparams:[\s\S]*/gi, '\nparams: [REDACTED]');
 }
 
