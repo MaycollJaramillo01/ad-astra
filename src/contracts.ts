@@ -179,12 +179,15 @@ export const FindingDto = z.object({
   windowStart: z.string().nullable(),
   windowEnd: z.string().nullable(),
   resolvedAt: iso.nullable(),
+  /** Solo en selecciones agrupadas; recuento dentro del mismo alcance y estado. */
+  groupedCount: z.number().int().positive().optional(),
 });
 export const FindingsQuery = z.object({
   status: z.enum(FINDING_STATUSES).optional(),
   adAccountId: z.uuid().optional(),
   /** Selección acotada para la bandeja de revisión; los consumidores anteriores conservan su lista. */
   limit: z.coerce.number().int().min(1).max(100).optional(),
+  groupBy: z.literal('account_rule').optional(),
 });
 export const FindingDecisionBody = z.object({
   status: z.enum(['acknowledged', 'dismissed', 'resolved']),

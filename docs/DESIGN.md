@@ -34,8 +34,8 @@ Se revisan capturas de escritorio y móvil y se ejecutan los flujos E2E de auten
 
 El asistente abre con «Qué revisar primero», seguido del espacio para preparar consultas. La
 lista reutiliza la prioridad del motor de auditoría, agrupa la misma regla por cuenta y muestra
-un máximo de cinco temas a partir de los cincuenta hallazgos abiertos con mayor prioridad del
-alcance autorizado. El contexto de cuenta filtra la selección; las otras vistas indican que
+un máximo de cinco temas con mayor prioridad del alcance autorizado. La agrupación se realiza
+en el servidor antes de aplicar el límite; las repeticiones no desplazan otros temas. El contexto de cuenta filtra la selección; las otras vistas indican que
 la selección corresponde a la cartera. Los permisos y el aislamiento se aplican antes del límite.
 
 Cada tema muestra severidad, cuenta, siguiente paso, motivo, confianza, periodo y enlace a su

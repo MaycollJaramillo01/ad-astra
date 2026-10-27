@@ -1,4 +1,4 @@
-import { and, desc, eq, lt } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, lt, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
@@ -80,23 +80,56 @@ export async function auditRoutes(fastify: FastifyInstance, { db }: { db: Db }) 
     },
     async (request) => {
       const ctx = tenantOf(request);
-      const { status, adAccountId, limit } = request.query;
-      const rows = await withContext(db, ctx, (tx) => {
+      const { status, adAccountId, limit, groupBy } = request.query;
+      const rows = await withContext(db, ctx, async (tx) => {
+        const scope = and(
+          clientScope(tx, ctx, adAccounts.clientId),
+          status ? eq(findings.status, status) : undefined,
+          adAccountId ? eq(findings.adAccountId, adAccountId) : undefined,
+        );
+        if (groupBy === 'account_rule') {
+          // El alcance precede al recuento y a la agrupación. Una regla repetida en muchos
+          // anuncios no debe ocultar las siguientes prioridades por ocupar todo el límite.
+          const grouped = tx
+            .selectDistinctOn([findings.adAccountId, findings.ruleId], {
+              ...getTableColumns(findings),
+              groupedCount:
+                sql<number>`(count(*) over(partition by ${findings.adAccountId},${findings.ruleId}))::int`.as(
+                  'grouped_count',
+                ),
+            })
+            .from(findings)
+            .innerJoin(adAccounts, eq(adAccounts.id, findings.adAccountId))
+            .where(scope)
+            .orderBy(
+              findings.adAccountId,
+              findings.ruleId,
+              desc(findings.priority),
+              desc(findings.lastSeenAt),
+              findings.id,
+            )
+            .as('review_topics');
+          const topics = await tx
+            .select()
+            .from(grouped)
+            .orderBy(desc(grouped.priority), desc(grouped.lastSeenAt), grouped.id)
+            .limit(limit ?? 5);
+          return topics.map(({ groupedCount, ...f }) => ({ f, groupedCount }));
+        }
         const query = tx
           .select({ f: findings })
           .from(findings)
           .innerJoin(adAccounts, eq(adAccounts.id, findings.adAccountId))
-          .where(
-            and(
-              clientScope(tx, ctx, adAccounts.clientId),
-              status ? eq(findings.status, status) : undefined,
-              adAccountId ? eq(findings.adAccountId, adAccountId) : undefined,
-            ),
-          )
+          .where(scope)
           .orderBy(desc(findings.priority), desc(findings.lastSeenAt), findings.id);
         return limit ? query.limit(limit) : query;
       });
-      return rows.map((r) => findingDto(r.f));
+      return rows.map((r) => ({
+        ...findingDto(r.f),
+        ...('groupedCount' in r && typeof r.groupedCount === 'number'
+          ? { groupedCount: r.groupedCount }
+          : {}),
+      }));
     },
   );
 

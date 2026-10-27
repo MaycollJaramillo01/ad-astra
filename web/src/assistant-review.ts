@@ -15,8 +15,8 @@ export function reviewTopics(findings: Finding[], limit = 5): ReviewTopic[] {
   for (const finding of sorted) {
     const key = `${finding.adAccountId}:${finding.ruleId}`;
     const group = groups.get(key);
-    if (group) group.count++;
-    else groups.set(key, { finding, count: 1 });
+    if (group) group.count += finding.groupedCount ?? 1;
+    else groups.set(key, { finding, count: finding.groupedCount ?? 1 });
   }
   return [...groups.values()].slice(0, limit);
 }

@@ -99,4 +99,47 @@ describe('selección acotada y autorizada de hallazgos', () => {
         400,
       );
   });
+  it('agrupa antes de limitar y cuenta solo hallazgos del alcance y estado solicitados', async () => {
+    const c = await seedTenant(db);
+    await withContext(db, { tenantId: c.tenantId }, async (tx) => {
+      await tx.insert(findings).values([
+        ...Array.from({ length: 7 }, (_, i) => ({
+          ...c.finding,
+          id: undefined,
+          fingerprint: `grouped:${i}`,
+          priority: '0.95',
+        })),
+        {
+          ...c.finding,
+          id: undefined,
+          fingerprint: 'next-topic',
+          ruleId: 'R-DATA-001',
+          priority: '0.8',
+        },
+        {
+          ...c.finding,
+          id: undefined,
+          fingerprint: 'closed-topic',
+          priority: '1',
+          status: 'resolved' as const,
+        },
+      ]);
+    });
+    const res = await t
+      .as(c.owner, c.tenantId)
+      .get('/v1/findings?status=open&groupBy=account_rule&limit=2');
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().map((f: Finding) => [f.ruleId, f.groupedCount])).toEqual([
+      [c.finding.ruleId, 8],
+      ['R-DATA-001', 1],
+    ]);
+    const outsider = await addMember(db, c.tenantId, 'analyst');
+    expect(
+      (
+        await t
+          .as(outsider, c.tenantId)
+          .get('/v1/findings?status=open&groupBy=account_rule&limit=2')
+      ).json(),
+    ).toEqual([]);
+  });
 });

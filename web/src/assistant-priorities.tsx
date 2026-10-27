@@ -29,7 +29,7 @@ export function AssistantPriorities({
     queryKey: ['assistant-review', accountId],
     queryFn: () =>
       api<Finding[]>(
-        `/v1/findings?status=open&limit=50${accountId ? `&adAccountId=${encodeURIComponent(accountId)}` : ''}`,
+        `/v1/findings?status=open&groupBy=account_rule&limit=5${accountId ? `&adAccountId=${encodeURIComponent(accountId)}` : ''}`,
       ),
   });
   const catalog = useQuery({
@@ -166,11 +166,8 @@ export function AssistantPriorities({
             })}
           </ol>
           <p className="assistant-selection-note">
-            {findings.data?.length === 50
-              ? 'Selección de los 50 hallazgos con mayor prioridad.'
-              : `Basado en ${findings.data?.length ?? 0} hallazgos abiertos de tu alcance.`}{' '}
-            Agrupamos la misma regla por cuenta. La prioridad orienta la revisión; no predice una
-            mejora.
+            Mostramos hasta cinco temas con mayor prioridad, agrupados por regla y cuenta. La
+            prioridad orienta la revisión; no predice una mejora.
           </p>
         </>
       ) : (
