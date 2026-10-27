@@ -118,8 +118,8 @@ export async function buildApp({
     async (_request, reply) => {
       try {
         await db.execute(sql`select 1`);
-        if ((await assertDeployment(db, config)).recoveryMode)
-          throw new Error('Recuperación pendiente');
+        const state = await assertDeployment(db, config);
+        if (state.recoveryMode || state.readOnlyMode) throw new Error('Recuperación pendiente');
         return { status: 'ready' };
       } catch {
         return reply.status(503).send({ status: 'unavailable' });

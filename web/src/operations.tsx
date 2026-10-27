@@ -38,8 +38,12 @@ export function OperationsPage() {
         <>
           <p className="text-sm">
             Entorno <strong>{d.environment}</strong> · esquema {d.schemaVersion} ·{' '}
-            {d.recoveryMode ? 'efectos externos bloqueados' : 'operación habilitada'} · actualizado{' '}
-            {new Date(d.at).toLocaleString('es')}
+            {d.recoveryMode
+              ? 'cola detenida por recuperación'
+              : d.readOnlyMode
+                ? 'solo lectura: sincronización activa y efectos externos bloqueados'
+                : 'operación habilitada'}{' '}
+            · actualizado {new Date(d.at).toLocaleString('es')}
           </p>
           <section className="grid gap-3 md:grid-cols-3">
             {[

@@ -1265,8 +1265,9 @@ export const deploymentState = pgTable(
   {
     id: integer('id').primaryKey().default(1),
     environment: text('environment').notNull().default('unbound'),
-    schemaVersion: integer('schema_version').notNull().default(16),
+    schemaVersion: integer('schema_version').notNull().default(17),
     recoveryMode: boolean('recovery_mode').notNull().default(true),
+    readOnlyMode: boolean('read_only_mode').notNull().default(false),
     workerStartedAt: ts('worker_started_at'),
     workerFinishedAt: ts('worker_finished_at'),
     backupAt: ts('backup_at'),

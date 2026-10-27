@@ -18,7 +18,47 @@ import { AppError, conflict, notFound, unauthorized } from './errors.ts';
 import { recordEvent } from './events.ts';
 import { type TenantContext, tenantOf } from './http.ts';
 
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
+
+/** El operador llama dentro de una transacción; ingesta autorizada sin liberar efectos externos. */
+export async function activateReadOnly(
+  tx: Tx,
+  input: { tenantId: string; environment: Config['APP_ENV']; reason: string },
+) {
+  if (input.reason.trim().length < 10) throw conflict('Se requiere un motivo de activación.');
+  const [state] = await tx
+    .select()
+    .from(deploymentState)
+    .where(eq(deploymentState.id, 1))
+    .for('update');
+  if (!state || state.environment !== input.environment || state.schemaVersion < SCHEMA_VERSION)
+    throw conflict('Entorno incompatible o migraciones pendientes.');
+  if (state.readOnlyMode && !state.recoveryMode) return state;
+  if (!state.recoveryMode) throw conflict('Activar solo lectura exige cuarentena previa.');
+  const [running] = await tx
+    .select({ id: jobs.id })
+    .from(jobs)
+    .where(eq(jobs.status, 'running'))
+    .limit(1);
+  if (running) throw conflict('Hay trabajos en curso; detener y conciliar antes de activar.');
+  const [updated] = await tx
+    .update(deploymentState)
+    .set({ readOnlyMode: true, recoveryMode: false, updatedAt: new Date() })
+    .where(eq(deploymentState.id, 1))
+    .returning();
+  await recordEvent(
+    tx,
+    { tenantId: input.tenantId, actorType: 'system' },
+    {
+      action: 'operations.read-only',
+      targetType: 'deployment',
+      targetId: input.environment,
+      after: { reason: input.reason, readOnlyMode: true, externalEffectsEnabled: false },
+    },
+  );
+  if (!updated) throw conflict('No se pudo activar el modo de lectura.');
+  return updated;
+}
 export async function assertDeployment(db: Db, config: Config) {
   const [state] = await db.select().from(deploymentState).where(eq(deploymentState.id, 1));
   if (!state || state.schemaVersion < SCHEMA_VERSION || state.environment !== config.APP_ENV)
@@ -40,8 +80,10 @@ export async function assertDeployment(db: Db, config: Config) {
 }
 export async function assertSideEffects(tx: Tx, config: Config, tenantId: string) {
   const [state] = await tx.select().from(deploymentState).where(eq(deploymentState.id, 1));
-  if (!state || state.recoveryMode || state.environment !== config.APP_ENV)
-    throw conflict('Efectos externos bloqueados por recuperación o entorno no vinculado.');
+  if (!state || state.recoveryMode || state.readOnlyMode || state.environment !== config.APP_ENV)
+    throw conflict(
+      'Efectos externos bloqueados por recuperación, solo lectura o entorno no vinculado.',
+    );
   if (config.APP_ENV === 'production' && !config.WRITE_TENANT_ALLOWLIST.includes(tenantId))
     throw conflict('Tenant fuera del grupo autorizado para esta fase de despliegue.');
 }
@@ -165,6 +207,7 @@ export async function technicalSnapshot(db: Db, ctx: TenantContext) {
       environment: state?.environment ?? 'unbound',
       schemaVersion: state?.schemaVersion ?? 0,
       recoveryMode: state?.recoveryMode ?? true,
+      readOnlyMode: state?.readOnlyMode ?? true,
       worker: { startedAt: state?.workerStartedAt, finishedAt: state?.workerFinishedAt },
       queue,
       meta24h: meta,
@@ -258,6 +301,7 @@ export async function operationsRoutes(
         state.restoreDrillAt !== null && now - state.restoreDrillAt.getTime() < 30 * 86400000;
       const status =
         !state.recoveryMode &&
+        !state.readOnlyMode &&
         backupFresh &&
         drillFresh &&
         heartbeatAgeSeconds !== null &&

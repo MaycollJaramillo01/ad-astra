@@ -120,6 +120,13 @@
       "when": 1793068067009,
       "tag": "0016_operations_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1793119515516,
+      "tag": "0017_read_only_sync",
+      "breakpoints": true
     }
   ]
 }

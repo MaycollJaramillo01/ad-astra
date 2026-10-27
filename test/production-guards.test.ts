@@ -159,6 +159,9 @@ it('rechaza base de otro entorno y rol propietario; el runtime no puede desactiv
   expect(await pgError(db.update(s.deploymentState).set({ recoveryMode: false }))).toMatchObject({
     code: '42501',
   });
+  expect(await pgError(db.update(s.deploymentState).set({ readOnlyMode: false }))).toMatchObject({
+    code: '42501',
+  });
 });
 it('el adaptador serverless conserva ruta, respuesta y cookies de Fastify', async () => {
   const t = await testApp({ realAuth: true }),

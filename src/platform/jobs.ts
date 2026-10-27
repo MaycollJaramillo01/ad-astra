@@ -1,7 +1,7 @@
 import { and, eq, like, sql } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import type { Db, Tx } from '../db/client.ts';
-import { jobs } from '../db/schema.ts';
+import { jobs, SYNC_KINDS } from '../db/schema.ts';
 import { redact } from './logging.ts';
 
 // Cola de trabajos sobre Postgres drenada por un tick programado (ADR-022). Sin procesos
@@ -67,7 +67,7 @@ export async function cancelQueued(tx: Db | Tx, dedupePrefix: string): Promise<v
  * Reclama un trabajo vencido. `FOR UPDATE SKIP LOCKED`: varios ticks o workers en paralelo no
  * se pisan. Un trabajo en curso con el lease caducado (tick que murió) se vuelve a reclamar.
  */
-export async function claimJob(db: Db, tenantId?: string): Promise<Job | null> {
+export async function claimJob(db: Db | Tx, tenantId?: string): Promise<Job | null> {
   const { rows } = await db.execute<Record<string, unknown>>(sql`
     update jobs set status = 'running', attempts = attempts + 1, updated_at = now(), lease_id=gen_random_uuid(),
                     locked_until = now() + make_interval(mins => ${LEASE_MINUTES})
@@ -76,6 +76,11 @@ export async function claimJob(db: Db, tenantId?: string): Promise<Job | null> {
       where ((status = 'queued' and run_after <= now()) or (status = 'running' and locked_until < now()))
         and (${tenantId ?? null}::uuid is null or tenant_id = ${tenantId ?? null}::uuid)
         and not coalesce((select recovery_mode from deployment_state where id=1),true)
+        and (not coalesce((select read_only_mode from deployment_state where id=1),false)
+          or kind in (${sql.join(
+            [...SYNC_KINDS, 'audit'].map((kind) => sql`${kind}`),
+            sql`, `,
+          )}))
       order by run_after
       limit 1
       for update skip locked

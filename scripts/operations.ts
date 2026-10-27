@@ -2,8 +2,10 @@ import { readFile } from 'node:fs/promises';
 import { eq } from 'drizzle-orm';
 import { createDb, withContext } from '../src/db/client.ts';
 import { deploymentState } from '../src/db/schema.ts';
+import type { Config } from '../src/platform/config.ts';
 import { recordEvent } from '../src/platform/events.ts';
 import { redact } from '../src/platform/logging.ts';
+import { activateReadOnly } from '../src/platform/operations.ts';
 import { validateProductionDrill } from './backup.ts';
 
 const mode = process.argv[2],
@@ -55,28 +57,42 @@ try {
         JSON.parse(await readFile(process.env.DRILL_EVIDENCE_FILE ?? '', 'utf8')),
       );
     }
-    if (!['release', 'kill', 'attest-drill'].includes(mode ?? ''))
-      throw new Error('Uso: operations.ts bind|release|kill|attest-drill');
-    await withContext(db, { tenantId }, async (tx) => {
-      await tx
-        .update(deploymentState)
-        .set(
-          drillAt
-            ? { restoreDrillAt: drillAt, updatedAt: new Date() }
-            : { recoveryMode: mode !== 'release', updatedAt: new Date() },
-        )
-        .where(eq(deploymentState.id, 1));
-      await recordEvent(
-        tx,
-        { tenantId, actorType: 'system' },
-        {
-          action: `operations.${mode}`,
-          targetType: 'deployment',
-          targetId: environment,
-          after: { reason, environment },
-        },
+    if (!['release', 'kill', 'attest-drill', 'read-only'].includes(mode ?? ''))
+      throw new Error('Uso: operations.ts bind|read-only|release|kill|attest-drill');
+    if (mode === 'read-only') {
+      await withContext(db, { tenantId }, (tx) =>
+        activateReadOnly(tx, {
+          tenantId,
+          environment: environment as Config['APP_ENV'],
+          reason,
+        }),
       );
-    });
+    } else {
+      await withContext(db, { tenantId }, async (tx) => {
+        await tx
+          .update(deploymentState)
+          .set(
+            drillAt
+              ? { restoreDrillAt: drillAt, updatedAt: new Date() }
+              : {
+                  recoveryMode: mode !== 'release',
+                  ...(mode === 'release' ? { readOnlyMode: false } : {}),
+                  updatedAt: new Date(),
+                },
+          )
+          .where(eq(deploymentState.id, 1));
+        await recordEvent(
+          tx,
+          { tenantId, actorType: 'system' },
+          {
+            action: `operations.${mode}`,
+            targetType: 'deployment',
+            targetId: environment,
+            after: { reason, environment },
+          },
+        );
+      });
+    }
   }
   console.log(`Operación ${mode} aplicada al entorno ${environment}.`);
 } catch (e) {
