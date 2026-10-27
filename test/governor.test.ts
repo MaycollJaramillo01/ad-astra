@@ -100,3 +100,58 @@ it('un error que no es de cuota se propaga sin bloquear', async () => {
   });
   expect(await governor.blocked([governor.key.app, governor.key.account('act_1')])).toBeNull();
 });
+
+it('reduce páginas pesadas conservando el cursor y sin duplicar las filas ya recibidas', async () => {
+  const calls: Array<{ limit: number; after: string | null }> = [];
+  const client = createMetaClient({
+    accessToken: 'EAAtest',
+    appSecret: 's',
+    fetch: async (input) => {
+      const url = new URL(String(input));
+      const limit = Number(url.searchParams.get('limit')),
+        after = url.searchParams.get('after');
+      calls.push({ limit, after });
+      if (after && limit > 100)
+        return new Response(
+          JSON.stringify({
+            error: { code: 1, message: 'Please reduce the amount of data you are asking for' },
+          }),
+          { status: 500 },
+        );
+      return Response.json(
+        after
+          ? { data: [2] }
+          : { data: [1], paging: { next: 'not-followed', cursors: { after: 'C1' } } },
+      );
+    },
+  });
+  const session = createMetaSession({
+    client,
+    governor: createGovernor(db, randomUUID()),
+    pace: false,
+  });
+  expect(await session.getAll<number>('/act_1/ads', { limit: 500 })).toEqual([1, 2]);
+  expect(calls).toEqual([
+    { limit: 500, after: null },
+    { limit: 500, after: 'C1' },
+    { limit: 250, after: 'C1' },
+    { limit: 125, after: 'C1' },
+    { limit: 62, after: 'C1' },
+  ]);
+});
+it('la reducción de páginas tiene límite y no reintenta errores de permisos', async () => {
+  const message = 'Please reduce the amount of data you are asking for';
+  const { session, fake } = setup([
+    { status: 500, body: { error: { code: 1, message } } },
+    { status: 500, body: { error: { code: 1, message } } },
+  ]);
+  await expect(session.getAll('/act_1/ads', { limit: 50 })).rejects.toMatchObject({ code: 1 });
+  expect(fake.calls()).toBe(2);
+  const denied = setup([
+    { status: 400, body: { error: { code: 200, message: 'Permission denied' } } },
+  ]);
+  await expect(denied.session.getAll('/act_1/ads', { limit: 500 })).rejects.toMatchObject({
+    code: 200,
+  });
+  expect(denied.fake.calls()).toBe(1);
+});

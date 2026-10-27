@@ -2,7 +2,13 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { and, gt, inArray, sql } from 'drizzle-orm';
 import type { Db } from '../../db/client.ts';
 import { metaRateState } from '../../db/schema.ts';
-import { MetaApiError, type MetaClient, type MetaResponse, type MetaUsage } from './client.ts';
+import {
+  MetaApiError,
+  type MetaClient,
+  type MetaResponse,
+  type MetaUsage,
+  requestsLessData,
+} from './client.ts';
 
 // Gobernador de cuotas (ARCHITECTURE §6.3). Meta limita por app y por app + cuenta: las claves
 // de bloqueo llevan el id de la app ("<app>|app", "<app>|insights", "<app>|account:act_1").
@@ -161,17 +167,31 @@ export function createMetaSession(opts: {
     async getAll<T>(path: string, params: Params, insights = false): Promise<T[]> {
       const rows: T[] = [];
       let after: string | undefined;
-      do {
-        const { body } = await call(insights, () =>
-          client.get<{ data?: T[]; paging?: { next?: string; cursors?: { after?: string } } }>(
-            path,
-            { ...params, after },
-          ),
-        );
+      let limit = typeof params.limit === 'number' ? params.limit : undefined;
+      while (true) {
+        let page: MetaResponse<{
+          data?: T[];
+          paging?: { next?: string; cursors?: { after?: string } };
+        }>;
+        try {
+          page = await call(insights, () =>
+            client.get<{ data?: T[]; paging?: { next?: string; cursors?: { after?: string } } }>(
+              path,
+              { ...params, ...(limit !== undefined ? { limit } : {}), after },
+            ),
+          );
+        } catch (error) {
+          // Insights reduce primero su rango temporal en sync.ts, sin repetir páginas pesadas.
+          if (insights || !requestsLessData(error) || limit === undefined || limit <= 25)
+            throw error;
+          limit = Math.max(25, Math.floor(limit / 2));
+          continue;
+        }
+        const { body } = page;
         rows.push(...(body.data ?? []));
         after = body.paging?.next ? body.paging.cursors?.after : undefined;
-      } while (after);
-      return rows;
+        if (!after) return rows;
+      }
     },
   };
 }

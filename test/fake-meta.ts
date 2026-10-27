@@ -26,6 +26,7 @@ export function createFakeMeta(opts: { appId: string; appSecret: string }) {
     pageSize: 2,
     /** Rango máximo que acepta Insights antes de pedir "menos datos" (100/1487534). */
     maxDays: Number.POSITIVE_INFINITY,
+    maxDaysCode: 100,
     /** Gasto por fila: cambiarlo simula que Meta reexpresa los datos. */
     spend: '10.5',
     /** Cabeceras de uso que acompañan a cada respuesta. */
@@ -142,7 +143,12 @@ export function createFakeMeta(opts: { appId: string; appSecret: string }) {
         until: string;
       };
       if (days(since, until).length > state.maxDays) {
-        return error(100, 'Please reduce the amount of data you are asking for', 1487534);
+        return error(
+          state.maxDaysCode,
+          'Please reduce the amount of data you are asking for',
+          state.maxDaysCode === 100 ? 1487534 : undefined,
+          state.maxDaysCode === 1 ? 500 : 400,
+        );
       }
       return page(insights(act, params), params, token);
     }

@@ -168,4 +168,16 @@ describe('createMetaClient', () => {
     expect((err as MetaNetworkError).action).toEqual({ kind: 'retry' });
     expect((err as Error).message).not.toContain(TOKEN);
   });
+
+  it.each(['get', 'post'] as const)(
+    'una respuesta no interpretable en %s es ambigua, no un rechazo Graph inventado',
+    async (method) => {
+      const client = createMetaClient({
+        accessToken: TOKEN,
+        appSecret: SECRET,
+        fetch: async () => new Response('<html>gateway failure</html>', { status: 400 }),
+      });
+      await expect(client[method]('/act_1/insights')).rejects.toBeInstanceOf(MetaNetworkError);
+    },
+  );
 });

@@ -126,6 +126,12 @@ export class MetaNetworkError extends Error {
   }
 }
 
+/** Señal de volumen usada solo para reducir lecturas, sin decidir permisos ni reenviar escrituras. */
+export const requestsLessData = (error: unknown): error is MetaApiError =>
+  error instanceof MetaApiError &&
+  (error.action.kind === 'split' ||
+    (error.code === 1 && /reduce.*(?:amount|data)/i.test(error.message)));
+
 export interface MetaClientOptions {
   accessToken: string;
   appSecret: string;
@@ -175,7 +181,15 @@ export function createMetaClient(opts: MetaClientOptions) {
     }
     const usage = parseUsage(res.headers);
     const body = (await res.json().catch(() => null)) as T | null;
-    if (!res.ok || body === null || (body as { error?: unknown }).error) {
+    const error = (body as { error?: { code?: unknown } } | null)?.error;
+    if (body === null || ((!res.ok || error) && typeof error?.code !== 'number')) {
+      // GET admite reintento; el gateway trata una escritura sin respuesta interpretable
+      // como ambigua y exige conciliación. Nunca se registra el cuerpo recibido.
+      throw new MetaNetworkError(
+        new Error(`Respuesta Graph no interpretable (HTTP ${res.status})`),
+      );
+    }
+    if (!res.ok || error) {
       throw new MetaApiError(res.status, body, usage);
     }
     return { body, usage, headers: res.headers };

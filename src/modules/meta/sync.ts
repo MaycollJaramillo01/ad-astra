@@ -25,7 +25,7 @@ import {
   type JobOutcome,
 } from '../../platform/jobs.ts';
 import { redact } from '../../platform/logging.ts';
-import { createMetaClient, META_API_VERSION, MetaApiError } from './client.ts';
+import { createMetaClient, META_API_VERSION, MetaApiError, requestsLessData } from './client.ts';
 import { AD_LEVEL_INSIGHTS_FIELDS, FIELDS } from './fields.ts';
 import { createGovernor, createMetaSession, type MetaSession, ThrottledError } from './governor.ts';
 import { addDays, decimal, localDate, monthRange, splitRange, toInsightRow } from './insights.ts';
@@ -645,10 +645,7 @@ export function createSyncHandlers(deps: SyncDeps): Record<SyncKind, JobHandler>
         true,
       );
     } catch (err) {
-      const halves =
-        err instanceof MetaApiError && err.action.kind === 'split'
-          ? splitRange(since, until)
-          : null;
+      const halves = requestsLessData(err) ? splitRange(since, until) : null;
       if (!halves) throw err;
       return [
         ...(await fetchInsights(session, metaAccountId, level, ...halves[0])),

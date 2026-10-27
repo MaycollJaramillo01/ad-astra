@@ -385,17 +385,24 @@ describe('sincronización de una cuenta', () => {
     expect(adRows.filter((a) => a.deletedAt).map((a) => a.metaId)).toEqual(['3003']);
   });
 
-  it('si Meta pide menos datos, el rango se parte y llegan todas las filas', async () => {
-    const s = await setup();
-    await s.connect();
-    s.fake.state.maxDays = 7;
-    await s.enable();
-    await s.tick();
+  it.each([100, 1])(
+    'si Meta pide menos datos (código %i), el rango se parte y llegan todas las filas',
+    async (code) => {
+      const s = await setup();
+      await s.connect();
+      s.fake.state.maxDays = 7;
+      s.fake.state.maxDaysCode = code;
+      await s.enable();
+      await s.tick();
 
-    expect(await s.insights()).toHaveLength(RECENT_DAYS * ENTITIES_PER_DAY);
-    const restatement = (await s.runs()).find((r) => r.kind === 'insights_restatement');
-    expect(restatement).toMatchObject({ status: 'succeeded', rowsUpserted: 28 * ENTITIES_PER_DAY });
-  });
+      expect(await s.insights()).toHaveLength(RECENT_DAYS * ENTITIES_PER_DAY);
+      const restatement = (await s.runs()).find((r) => r.kind === 'insights_restatement');
+      expect(restatement).toMatchObject({
+        status: 'succeeded',
+        rowsUpserted: 28 * ENTITIES_PER_DAY,
+      });
+    },
+  );
 
   it('el backfill avanza mes a mes hasta backfillMonths y termina', async () => {
     const s = await setup();
