@@ -1,43 +1,149 @@
 @import "tailwindcss";
-
-:root {
-  color-scheme: light dark;
-  /* Gráficos y estados (skill dataviz, paleta de referencia validada contra estas superficies). */
-  --viz-surface: #ffffff;
-  --viz-series: #2a78d6;
-  --viz-series-wash: rgb(42 120 214 / 0.1);
-  --viz-compare: #898781;
-  --viz-grid: #e1e0d9;
-  --viz-axis: #c3c2b7;
-  --viz-ink-muted: #52514e;
-  --viz-immature: rgb(250 178 25 / 0.12);
-  --status-good: #0ca30c;
-  --status-good-text: #006300;
-  --status-warning: #fab219;
-  --status-critical: #d03b3b;
-  --status-critical-text: #b42323;
-  --status-neutral: #898781;
+@import "./workspace.css";
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+@font-face {
+  font-family: "DM Sans";
+  src: url("/fonts/dm-sans-latin.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
 }
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --viz-surface: #030712;
-    --viz-series: #3987e5;
-    --viz-series-wash: rgb(57 135 229 / 0.12);
-    --viz-grid: #2c2c2a;
-    --viz-axis: #383835;
-    --viz-ink-muted: #c3c2b7;
-    --viz-immature: rgb(250 178 25 / 0.1);
-    --status-good-text: #0ca30c;
-    --status-critical-text: #e66767;
+@theme {
+  --font-sans: "DM Sans", system-ui, sans-serif;
+  --color-gray-50: #f8f7f5;
+  --color-gray-100: #f0eeeb;
+  --color-gray-200: #e7e4e0;
+  --color-gray-300: #d4cfca;
+  --color-gray-400: #756d70;
+  --color-gray-500: #76706f;
+  --color-gray-600: #625b5c;
+  --color-gray-700: #4b4449;
+  --color-gray-800: #39313b;
+  --color-gray-900: #29232d;
+  --color-gray-950: #211c25;
+}
+:root {
+  color-scheme: light;
+  font-family: var(--font-sans);
+  font-synthesis: none;
+  --canvas: #f7f6f3;
+  --paper: #fff;
+  --ink: #2e2932;
+  --muted: #716973;
+  --line: #e9e6e3;
+  --brand: #bc4d3b;
+  --brand-soft: #faeee8;
+  --sidebar: #2c2330;
+  --viz-surface: #fff;
+  --viz-series: #6a61a6;
+  --viz-series-wash: rgb(106 97 166 / 0.08);
+  --viz-compare: #9c9692;
+  --viz-grid: #eeece9;
+  --viz-axis: #d9d5d2;
+  --viz-ink-muted: #716973;
+  --viz-immature: rgb(213 165 70 / 0.08);
+  --status-good: #258269;
+  --status-good-text: #18694f;
+  --status-warning: #a87419;
+  --status-critical: #bf4d4d;
+  --status-critical-text: #b13e3e;
+  --status-neutral: #8a838a;
+}
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+    background: var(--canvas);
+    color: var(--ink);
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+  }
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  summary {
+    -webkit-tap-highlight-color: transparent;
+  }
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    transition:
+      background-color 150ms,
+      border-color 150ms,
+      color 150ms,
+      box-shadow 150ms;
+  }
+  button:not(:disabled),
+  select,
+  summary {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  :focus-visible {
+    outline: 3px solid #9e8bc4;
+    outline-offset: 3px;
+  }
+  input,
+  select,
+  textarea {
+    accent-color: #6a61a6;
+  }
+  h1,
+  h2,
+  h3,
+  p {
+    text-wrap: pretty;
+  }
+  h1,
+  h2,
+  h3 {
+    color: var(--ink);
+  }
+  h1 {
+    letter-spacing: -0.035em;
+  }
+  table,
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
   }
 }
-
-/* Las tarjetas de definición de métricas usan el popover nativo: centradas y legibles. */
 [popover].metric-info {
   margin: auto;
   max-width: min(28rem, calc(100vw - 2rem));
+  border: 1px solid #e5dedf;
+  border-radius: 10px;
+  padding: 22px;
+  color: #514653;
+  box-shadow: 0 15px 50px #352d3c24;
 }
 [popover].metric-info::backdrop {
-  background: rgb(0 0 0 / 0.25);
+  background: #2f223c40;
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+  .workspace-sidebar,
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    transition: none;
+    scroll-behavior: auto;
+  }
 }

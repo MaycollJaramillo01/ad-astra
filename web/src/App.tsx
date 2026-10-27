@@ -1,6 +1,6 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { type FormEvent, type ReactNode, useState } from 'react';
-import { Navigate, NavLink, Route, Routes } from 'react-router';
+import { useQuery } from '@tanstack/react-query';
+import { type FormEvent, useState } from 'react';
+import { Navigate, Route, Routes } from 'react-router';
 import type { Me } from '../../src/contracts.ts';
 import { AccountPage } from './account.tsx';
 import { ActionCenterPage } from './actions.tsx';
@@ -8,9 +8,11 @@ import { ApiError, api, authClient, getActiveTenant, setActiveTenant } from './a
 import { AssistantPage } from './assistant.tsx';
 import { DashboardPage } from './dashboard.tsx';
 import { ForecastPage } from './forecast.tsx';
+import { BrandMark, Icon } from './icons.tsx';
 import { MonitoringPage } from './monitoring.tsx';
 import { OperationsPage } from './operations.tsx';
 import { AccountsPage, ClientsPage, ConnectionsPage, ErrorBox } from './pages.tsx';
+import { Shell } from './workspace.tsx';
 
 export function App() {
   const me = useQuery({
@@ -65,104 +67,6 @@ export function App() {
   );
 }
 
-function Shell({
-  me,
-  activeTenantId,
-  children,
-}: {
-  me: Me;
-  activeTenantId: string;
-  children: ReactNode;
-}) {
-  const queryClient = useQueryClient();
-  const isAdmin = me.memberships.some(
-    (m) => m.tenantId === activeTenantId && ['owner', 'admin'].includes(m.role),
-  );
-  const canUseAi = me.memberships.some((m) => m.tenantId === activeTenantId && m.role !== 'viewer');
-  const link = ({ isActive }: { isActive: boolean }) =>
-    `rounded px-3 py-1.5 text-sm ${isActive ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`;
-
-  return (
-    <div className="min-h-screen bg-white text-gray-900 dark:bg-gray-950 dark:text-gray-100">
-      <header className="flex flex-wrap items-center gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
-        <strong>Ad Astra</strong>
-        {me.memberships.length > 1 ? (
-          <label className="text-sm">
-            <span className="sr-only">Organización activa</span>
-            <select
-              className="rounded border border-gray-300 bg-transparent px-2 py-1 dark:border-gray-700"
-              value={activeTenantId}
-              onChange={(e) => {
-                setActiveTenant(e.target.value);
-                void queryClient.invalidateQueries();
-              }}
-            >
-              {me.memberships.map((m) => (
-                <option key={m.tenantId} value={m.tenantId}>
-                  {m.tenantName}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : (
-          <span className="text-sm text-gray-500">{me.memberships[0]?.tenantName}</span>
-        )}
-        <nav aria-label="Principal" className="flex flex-wrap gap-1">
-          <NavLink to="/analitica" className={link}>
-            Analítica
-          </NavLink>
-          <NavLink to="/prevision" className={link}>
-            Previsión
-          </NavLink>
-          <NavLink to="/acciones" className={link}>
-            Action Center
-          </NavLink>
-          <NavLink to="/monitoreo" className={link}>
-            Monitoreo
-          </NavLink>
-          {isAdmin && (
-            <NavLink to="/operaciones" className={link}>
-              Estado técnico
-            </NavLink>
-          )}
-          {canUseAi && (
-            <NavLink to="/asistente" className={link}>
-              Asistente IA
-            </NavLink>
-          )}
-          <NavLink to="/clientes" className={link}>
-            Clientes
-          </NavLink>
-          <NavLink to="/cuentas" className={link}>
-            Cuentas
-          </NavLink>
-          {isAdmin && (
-            <NavLink to="/conexiones" className={link}>
-              Conexiones Meta
-            </NavLink>
-          )}
-        </nav>
-        <NavLink to="/cuenta" className={link}>
-          Mi cuenta
-        </NavLink>
-        <span className="ml-auto text-sm text-gray-500">{me.user.email}</span>
-        <button
-          type="button"
-          className="rounded border border-gray-300 px-3 py-1 text-sm dark:border-gray-700"
-          onClick={async () => {
-            await authClient.signOut();
-            queryClient.clear();
-            void queryClient.invalidateQueries({ queryKey: ['me'] });
-          }}
-        >
-          Salir
-        </button>
-      </header>
-      <main className="mx-auto max-w-7xl p-4">{children}</main>
-    </div>
-  );
-}
-
 function Login() {
   const options = useQuery({
     queryKey: ['access-options'],
@@ -189,63 +93,101 @@ function Login() {
     }
   }
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50 p-4 dark:bg-gray-950">
-      <div className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-        <h1 className="mb-1 text-xl font-semibold">Ad Astra</h1>
-        <p className="mb-6 text-sm text-gray-500">Acceso privado a tu organización.</p>
-        {options.isPending && <p role="status">Cargando acceso…</p>}
-        {options.error && <ErrorBox error={options.error} />}
-        {options.data?.mode === 'password' && (
-          <form onSubmit={signIn} className="space-y-4">
-            <label className="block text-sm">
-              Correo
-              <input
-                className="mt-1 w-full rounded border border-gray-300 bg-transparent p-2"
-                type="email"
-                autoComplete="username"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </label>
-            <label className="block text-sm">
-              Contraseña
-              <input
-                className="mt-1 w-full rounded border border-gray-300 bg-transparent p-2"
-                type="password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </label>
-            {error && (
-              <p role="alert" className="text-sm text-red-700">
-                {error}
+    <main className="login-layout">
+      <section className="login-story" aria-label="Ad Astra, tu espacio de campañas">
+        <div className="login-wordmark">
+          <BrandMark />
+          <span>ad astra.</span>
+        </div>
+        <div className="login-story-body">
+          <h2>Una perspectiva clara de cada campaña.</h2>
+          <p>
+            Reúne la información, revisa las oportunidades y decide con evidencia. Todo tu equipo,
+            en el mismo espacio.
+          </p>
+          <section className="login-flow" aria-label="Flujo de trabajo">
+            <span>
+              <Icon name="trend" size={17} /> Analiza
+            </span>
+            <Icon name="arrow" size={15} />
+            <span>
+              <Icon name="action" size={17} /> Decide
+            </span>
+            <Icon name="arrow" size={15} />
+            <span>
+              <Icon name="monitor" size={17} /> Da seguimiento
+            </span>
+          </section>
+        </div>
+        <p className="login-story-foot">Tu equipo. Tus cuentas. Tus decisiones.</p>
+      </section>
+      <section className="login-form-side" aria-label="Inicio de sesión">
+        <div className="login-form">
+          <h1 className="mb-1 text-xl font-semibold">Ad Astra</h1>
+          <p>
+            Qué bueno tenerte de vuelta.
+            <br />
+            Entra a tu espacio de trabajo.
+          </p>
+          {options.isPending && <p role="status">Cargando acceso…</p>}
+          {options.error && <ErrorBox error={options.error} />}
+          {options.data?.mode === 'password' && (
+            <form onSubmit={signIn} className="space-y-4">
+              <label className="block text-sm">
+                Correo
+                <input
+                  className="mt-1 w-full rounded border border-gray-300 bg-transparent p-2"
+                  type="email"
+                  autoComplete="username"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </label>
+              <label className="block text-sm">
+                Contraseña
+                <input
+                  className="mt-1 w-full rounded border border-gray-300 bg-transparent p-2"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </label>
+              {error && (
+                <p role="alert" className="text-sm text-red-700">
+                  {error}
+                </p>
+              )}
+              <button
+                disabled={busy}
+                className="w-full rounded bg-gray-900 px-4 py-2 text-white disabled:opacity-50 dark:bg-white dark:text-gray-900"
+                type="submit"
+              >
+                {busy ? 'Entrando…' : 'Iniciar sesión'}
+              </button>
+              <p className="text-xs text-gray-500">
+                Solo cuentas invitadas. Para recuperar el acceso, contacta al administrador.
               </p>
-            )}
+            </form>
+          )}
+          {options.data?.mode === 'workspace' && (
             <button
-              disabled={busy}
-              className="w-full rounded bg-gray-900 px-4 py-2 text-white disabled:opacity-50 dark:bg-white dark:text-gray-900"
-              type="submit"
+              type="button"
+              className="w-full rounded bg-gray-900 px-4 py-2 text-white hover:bg-gray-700 dark:bg-white dark:text-gray-900"
+              onClick={() =>
+                void authClient.signIn.social({ provider: 'google', callbackURL: '/' })
+              }
             >
-              {busy ? 'Entrando…' : 'Iniciar sesión'}
+              Continuar con Google
             </button>
-            <p className="text-xs text-gray-500">
-              Solo cuentas invitadas. Para recuperar el acceso, contacta al administrador.
-            </p>
-          </form>
-        )}
-        {options.data?.mode === 'workspace' && (
-          <button
-            type="button"
-            className="w-full rounded bg-gray-900 px-4 py-2 text-white hover:bg-gray-700 dark:bg-white dark:text-gray-900"
-            onClick={() => void authClient.signIn.social({ provider: 'google', callbackURL: '/' })}
-          >
-            Continuar con Google
-          </button>
-        )}
-      </div>
+          )}
+          <div className="login-privacy">
+            <Icon name="lock" size={12} /> Acceso privado, solo por invitación
+          </div>
+        </div>
+      </section>
     </main>
   );
 }

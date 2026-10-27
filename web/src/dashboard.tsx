@@ -29,7 +29,7 @@ import {
 } from '../../src/modules/insights/catalog.ts';
 import { ApiError, api, download } from './api.ts';
 import { type AuditLevel, AuditSection, HealthBadge, useAuditEntity } from './audit.tsx';
-import { type ChartPoint, NotAvailable, TrendChart } from './chart.tsx';
+import { type ChartPoint, linePath, NotAvailable, TrendChart } from './chart.tsx';
 import {
   formatAgo,
   formatDateTime,
@@ -38,6 +38,8 @@ import {
   formatMetric,
   formatRange,
 } from './format.ts';
+import { Icon } from './icons.tsx';
+import { PortfolioWelcome } from './onboarding.tsx';
 import { ErrorBox } from './pages.tsx';
 import { ToneIcon } from './ui.tsx';
 
@@ -200,7 +202,18 @@ export function DashboardPage({ role }: { role: Role }) {
       <ErrorBox error={query.error} />
     );
   }
-  if (!query.data) return <p className="p-6 text-sm text-gray-500">Cargando la analítica…</p>;
+  if (!query.data)
+    return (
+      <div className="dashboard-skeleton" role="status" aria-label="Cargando la analítica">
+        <div className="skeleton" />
+        <div className="skeleton-grid">
+          {[1, 2, 3, 4].map((i) => (
+            <div className="skeleton" key={i} />
+          ))}
+        </div>
+        <div className="skeleton" />
+      </div>
+    );
   const r = query.data;
   const stale = query.isPlaceholderData;
 
@@ -211,18 +224,33 @@ export function DashboardPage({ role }: { role: Role }) {
           ? 'Actualizando datos…'
           : `${r.node.name}: datos de ${formatRange(r.range.since, r.range.until)}`}
       </p>
-      <Breadcrumbs report={r} search={carried(sp)} />
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <h1 className="text-xl font-semibold">{r.node.name}</h1>
-        <span className="text-sm text-gray-500">{LEVEL_LABEL[r.node.level]}</span>
+      {r.node.level !== 'org' && <Breadcrumbs report={r} search={carried(sp)} />}
+      <header className="analytics-header">
+        <div>
+          <p className="page-eyebrow">
+            {r.node.level === 'org' ? 'RENDIMIENTO DE TU CARTERA' : LEVEL_LABEL[r.node.level]}
+          </p>
+          <h1>{r.node.level === 'org' ? 'Resumen de cartera' : r.node.name}</h1>
+          <p className="page-description">
+            {r.node.level === 'org'
+              ? 'Una perspectiva común de tus cuentas, resultados y oportunidades.'
+              : `${LEVEL_LABEL[r.node.level]} · datos de ${formatRange(r.range.since, r.range.until)}`}
+          </p>
+        </div>
         {r.node.level !== 'org' && <StatusBadge row={r.node} />}
         {r.node.objective && (
           <span className="text-sm text-gray-500">· {objectiveLabel(r.node.objective)}</span>
         )}
-        <span className="ml-auto flex flex-wrap gap-x-4 text-sm">
+        <span className="view-actions">
+          {r.node.level === 'org' && (
+            <Link to="/cuentas" className="button-secondary">
+              <Icon name="accounts" size={14} />
+              Ver cuentas
+            </Link>
+          )}
           {(r.node.level === 'account' || r.node.level === 'campaign') && r.node.id && (
             <Link
-              className="underline"
+              className="button-secondary"
               to={`/prevision/${SLUG[r.node.level]}/${encodeURIComponent(r.node.id)}`}
             >
               Pronóstico y escenarios
@@ -230,72 +258,76 @@ export function DashboardPage({ role }: { role: Role }) {
           )}
           {role !== 'viewer' && (
             <Link
-              className="underline"
+              className="button-secondary"
               to={`/asistente?nivel=${r.node.level}${r.node.id ? `&id=${r.node.id}` : ''}`}
             >
-              Preguntar a la IA sobre esta vista
+              <Icon name="assistant" size={14} />
+              Consultar al asistente
             </Link>
           )}
         </span>
       </header>
-      <Toolbar report={r} sp={sp} set={set} />
-      <div className={`space-y-5 transition-opacity ${stale ? 'opacity-60' : ''}`}>
-        <DataNotes report={r} />
-        <KpiGrid report={r} />
-        {auditLevel && r.node.id && (
-          <AuditSection
-            level={auditLevel}
-            id={r.node.id}
-            accountId={r.node.accountId}
-            currency={r.currency}
-            role={role}
-          />
-        )}
-        <div className="grid gap-5 lg:grid-cols-3">
-          <section
-            aria-labelledby="tendencia"
-            className="min-w-0 rounded-lg border border-gray-200 p-4 lg:col-span-2 dark:border-gray-800"
-          >
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <h2 id="tendencia" className="font-semibold">
-                Tendencia diaria
-              </h2>
-              <label className="text-sm">
-                <span className="mr-2 text-gray-600 dark:text-gray-300">Métrica</span>
-                <select
-                  className={select}
-                  value={metric}
-                  onChange={(e) => set({ metrica: e.target.value })}
-                >
-                  {METRIC_IDS.map((id) => (
-                    <option key={id} value={id}>
-                      {METRICS[id].label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+      {r.node.level === 'org' && r.freshness.accounts === 0 ? (
+        <PortfolioWelcome role={role} />
+      ) : (
+        <>
+          <Toolbar report={r} sp={sp} set={set} />
+          <div className={`space-y-5 transition-opacity ${stale ? 'opacity-60' : ''}`}>
+            <DataNotes report={r} />
+            <KpiGrid report={r} />
+            {auditLevel && r.node.id && (
+              <AuditSection
+                level={auditLevel}
+                id={r.node.id}
+                accountId={r.node.accountId}
+                currency={r.currency}
+                role={role}
+              />
+            )}
+            <div className="grid gap-5 lg:grid-cols-3">
+              <section aria-labelledby="tendencia" className="data-panel lg:col-span-2">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <h2 id="tendencia" className="font-semibold">
+                    Tendencia diaria
+                  </h2>
+                  <label className="text-sm">
+                    <span className="mr-2 text-gray-600 dark:text-gray-300">Métrica</span>
+                    <select
+                      className={select}
+                      value={metric}
+                      onChange={(e) => set({ metrica: e.target.value })}
+                    >
+                      {METRIC_IDS.map((id) => (
+                        <option key={id} value={id}>
+                          {METRICS[id].label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <TrendChart
+                  metric={metric}
+                  points={chartPoints(r, metric)}
+                  currency={r.currency}
+                  range={r.range}
+                  compareRange={r.compare}
+                />
+              </section>
+              <ResultsBreakdown report={r} />
             </div>
-            <TrendChart
-              metric={metric}
-              points={chartPoints(r, metric)}
-              currency={r.currency}
-              range={r.range}
-              compareRange={r.compare}
-            />
-          </section>
-          <ResultsBreakdown report={r} />
-        </div>
-        {r.children ? (
-          <ChildrenTable
-            key={`${r.node.level}:${r.node.id}`}
-            report={r}
-            search={carried(sp)}
-            health={audit.data?.childrenHealth ?? {}}
-          />
-        ) : (
-          <DailyTable key={`${r.node.level}:${r.node.id}`} report={r} search={carried(sp)} />
-        )}
-      </div>
+            {r.children ? (
+              <ChildrenTable
+                key={`${r.node.level}:${r.node.id}`}
+                report={r}
+                search={carried(sp)}
+                health={audit.data?.childrenHealth ?? {}}
+              />
+            ) : (
+              <DailyTable key={`${r.node.level}:${r.node.id}`} report={r} search={carried(sp)} />
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -344,7 +376,7 @@ function Toolbar({
   const custom = isDay(sp.get('desde')) && isDay(sp.get('hasta'));
   const preset = custom ? 'custom' : (report.range.preset ?? 'last_7d');
   return (
-    <fieldset className="flex flex-wrap items-end gap-3 rounded-lg bg-gray-50 p-3 dark:bg-gray-900">
+    <fieldset className="analytics-toolbar">
       <legend className="sr-only">Periodo, comparación y moneda</legend>
       <label className="flex flex-col text-xs text-gray-600 dark:text-gray-300">
         Periodo
@@ -467,46 +499,58 @@ function DataNotes({ report: r }: { report: AnalyticsReport }) {
   const otherCurrencies = r.currencies.filter((c) => c.code !== r.currency).map((c) => c.code);
 
   return (
-    <ul
-      aria-label="Sobre estos datos"
-      className="flex flex-wrap gap-2 text-xs text-gray-700 dark:text-gray-300"
-    >
-      <Note tone={sync.tone}>
-        <span
-          title={
-            f.oldestSyncAt
-              ? `Última sincronización de la cuenta más atrasada: ${formatDateTime(f.oldestSyncAt)}`
-              : undefined
-          }
-        >
+    <details className="data-context">
+      <summary>
+        <span>
+          <ToneIcon tone={sync.tone} />
           {sync.text}
         </span>
-        {f.dataUntil && <> · datos hasta el {formatDay(f.dataUntil, true)}</>}
-      </Note>
-      <Note tone="neutral">
-        {r.timezones.length > 1
-          ? 'Varias zonas horarias: cada cuenta usa su propio día'
-          : `Días en hora de ${r.timezones[0] ?? 'UTC'}`}
-      </Note>
-      <Note tone={otherCurrencies.length ? 'warning' : 'neutral'}>
-        Moneda {r.currency ?? '—'}
-        {otherCurrencies.length > 0 &&
-          ` · las cuentas en ${otherCurrencies.join(', ')} se ven aparte (no se mezclan)`}
-      </Note>
-      <Note tone={r.attribution.length > 1 ? 'warning' : 'neutral'}>
-        Atribución:{' '}
-        {r.attribution.length === 0
-          ? 'sin datos'
-          : r.attribution.length > 1
-            ? 'varias ventanas según la campaña'
-            : attributionLabel(r.attribution[0] ?? null)}
-      </Note>
-      {immature && (
-        <Note tone="warning">
-          Los últimos 7 días pueden cambiar: hay conversiones aún por llegar
+        <span>
+          {immature ? 'Conversiones en maduración · ' : ''}Contexto de datos
+          <Icon name="down" size={13} />
+        </span>
+      </summary>
+      <ul
+        aria-label="Sobre estos datos"
+        className="flex flex-wrap gap-2 text-xs text-gray-700 dark:text-gray-300"
+      >
+        <Note tone={sync.tone}>
+          <span
+            title={
+              f.oldestSyncAt
+                ? `Última sincronización de la cuenta más atrasada: ${formatDateTime(f.oldestSyncAt)}`
+                : undefined
+            }
+          >
+            {sync.text}
+          </span>
+          {f.dataUntil && <> · datos hasta el {formatDay(f.dataUntil, true)}</>}
         </Note>
-      )}
-    </ul>
+        <Note tone="neutral">
+          {r.timezones.length > 1
+            ? 'Varias zonas horarias: cada cuenta usa su propio día'
+            : `Días en hora de ${r.timezones[0] ?? 'UTC'}`}
+        </Note>
+        <Note tone={otherCurrencies.length ? 'warning' : 'neutral'}>
+          Moneda {r.currency ?? '—'}
+          {otherCurrencies.length > 0 &&
+            ` · las cuentas en ${otherCurrencies.join(', ')} se ven aparte (no se mezclan)`}
+        </Note>
+        <Note tone={r.attribution.length > 1 ? 'warning' : 'neutral'}>
+          Atribución:{' '}
+          {r.attribution.length === 0
+            ? 'sin datos'
+            : r.attribution.length > 1
+              ? 'varias ventanas según la campaña'
+              : attributionLabel(r.attribution[0] ?? null)}
+        </Note>
+        {immature && (
+          <Note tone="warning">
+            Los últimos 7 días pueden cambiar: hay conversiones aún por llegar
+          </Note>
+        )}
+      </ul>
+    </details>
   );
 }
 
@@ -559,11 +603,13 @@ function KpiGrid({ report: r }: { report: AnalyticsReport }) {
   const single = r.totals.resultTypes.length === 1 ? r.totals.resultTypes[0] : undefined;
   return (
     <section aria-label="Indicadores clave">
-      <ul className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        {[...KPIS, ...extra].map((id) => (
+      <ul className="kpi-grid">
+        {[...KPIS, ...extra].map((id, index) => (
           <KpiTile
             key={id}
             id={id}
+            primary={index < 4}
+            series={index < 4 ? chartPoints(r, id).map((p) => p.current.value) : undefined}
             sublabel={
               (id === 'results' || id === 'costPerResult') && single
                 ? resultLabel(single)
@@ -589,6 +635,8 @@ function KpiTile({
   currency,
   compareLabel,
   attribution,
+  primary,
+  series,
 }: {
   id: MetricId;
   sublabel?: string;
@@ -597,11 +645,40 @@ function KpiTile({
   currency: string | null;
   compareLabel: string | null;
   attribution: string[];
+  primary: boolean;
+  series?: Array<number | null>;
 }) {
   const def = METRICS[id];
   const delta = change(current.value, previous?.value ?? null);
+  const values = series?.filter((v): v is number => v !== null) ?? [],
+    lo = Math.min(...values),
+    hi = Math.max(...values);
+  const sparkline =
+    values.length > 1 && series
+      ? linePath(
+          series,
+          (i) => 2 + (i * 96) / Math.max(1, series.length - 1),
+          (v) => 27 - ((v - lo) / Math.max(hi - lo, 1)) * 22,
+        )
+      : null;
   return (
-    <li className="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
+    <li className={`kpi-card ${primary ? '' : 'secondary'}`}>
+      {primary && (
+        <div className="metric-icon">
+          <Icon
+            size={15}
+            name={
+              id === 'spend'
+                ? 'accounts'
+                : id === 'results'
+                  ? 'clients'
+                  : id === 'costPerResult'
+                    ? 'action'
+                    : 'trend'
+            }
+          />
+        </div>
+      )}
       <div className="flex items-start justify-between gap-2">
         <h3 className="text-sm text-gray-600 dark:text-gray-300">
           {def.label}
@@ -611,11 +688,11 @@ function KpiTile({
       </div>
       {current.value === null ? (
         <>
-          <p className="mt-1 text-lg font-semibold text-gray-500">No disponible</p>
+          <p className="metric-unavailable">No disponible</p>
           <p className="text-xs text-gray-500">{current.reason}</p>
         </>
       ) : (
-        <p className="mt-1 text-2xl font-semibold">{formatMetric(id, current.value, currency)}</p>
+        <p className="metric-value">{formatMetric(id, current.value, currency)}</p>
       )}
       <StateTag value={current} />
       {compareLabel && current.value !== null && (
@@ -634,6 +711,18 @@ function KpiTile({
             </>
           )}
         </p>
+      )}
+      {sparkline && (
+        <svg className="metric-sparkline" viewBox="0 0 100 32" aria-hidden="true">
+          <path
+            d={sparkline}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
       )}
     </li>
   );
@@ -773,10 +862,7 @@ function ResultsBreakdown({ report: r }: { report: AnalyticsReport }) {
     v: compute(id, r.totals.current, ctx),
   })).filter((c) => (c.v.value ?? 0) > 0);
   return (
-    <section
-      aria-labelledby="desglose"
-      className="min-w-0 rounded-lg border border-gray-200 p-4 dark:border-gray-800"
-    >
+    <section aria-labelledby="desglose" className="data-panel">
       <h2 id="desglose" className="font-semibold">
         Desglose de resultados
       </h2>

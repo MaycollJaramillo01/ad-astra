@@ -151,7 +151,7 @@ await writeFile(
 );
 const t = await testApp({
   realAuth: true,
-  config: { ANALYTICS_CACHE_MS: 15000, AUTH_MODE: 'password' },
+  config: { ANALYTICS_CACHE_MS: 15000, AUTH_MODE: 'password', APP_ORIGIN: 'http://localhost:5174' },
 });
 await t.app.listen({ host: '127.0.0.1', port: Number(process.env.TEST_SERVER_PORT ?? 3000) });
 process.once('SIGTERM', () => {

@@ -24,6 +24,10 @@ test('acceso con contraseña, cambio de clave y sesión renovada en navegador', 
   await context.clearCookies();
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Ad Astra', exact: true })).toBeVisible();
+  expect(
+    (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
+      .violations,
+  ).toEqual([]);
   await page.getByLabel('Correo', { exact: true }).fill(f.passwordLogin.email);
   await page.getByLabel('Contraseña', { exact: true }).fill(f.passwordLogin.password);
   await page.getByRole('button', { name: 'Iniciar sesión', exact: true }).click();
@@ -73,6 +77,87 @@ test('métricas no disponibles no se presentan como costo cero', async ({ page }
   await page.goto(`/analitica/campana/${f.campaignId}`);
   await expect(page.getByRole('heading', { name: /Campaña browser-a/ })).toBeVisible();
   await expect(page.getByText('No disponible', { exact: false }).first()).toBeVisible();
+  expect(
+    (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
+      .violations,
+  ).toEqual([]);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+});
+
+test('buscador de vistas por teclado y restauración del foco', async ({ page }) => {
+  await page.goto('/analitica');
+  await expect(page.getByRole('heading', { name: 'Resumen de cartera' })).toBeVisible();
+  await page.keyboard.press('ControlOrMeta+k');
+  const search = page.getByRole('searchbox', { name: 'Buscar una vista', exact: true });
+  await expect(search).toBeFocused();
+  await search.fill('Estado técnico');
+  await expect(page.getByRole('status')).toHaveText('1 vista disponible');
+  expect(
+    (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
+      .violations,
+  ).toEqual([]);
+  await search.press('ArrowDown');
+  await expect(page.getByRole('button', { name: 'Estado técnico Organización' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/operaciones$/);
+  await expect(page.locator('#main-content')).toBeFocused();
+  const trigger = page.getByRole('button', { name: 'Buscar una vista', exact: true });
+  await trigger.click();
+  await expect(search).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+});
+
+test('navegación móvil mantiene el foco y permite abrir una vista', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/analitica');
+  const open = page.getByRole('button', { name: 'Abrir menú', exact: true });
+  const close = page.getByRole('button', { name: 'Cerrar menú', exact: true });
+  await open.click();
+  await expect(close).toBeFocused();
+  await expect(page.locator('.workspace-main')).toHaveAttribute('inert', '');
+  await page.keyboard.press('Shift+Tab');
+  await expect(page.getByRole('button', { name: 'Salir', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(close).toBeFocused();
+  expect(
+    (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
+      .violations,
+  ).toEqual([]);
+  await page.keyboard.press('Escape');
+  await expect(open).toBeFocused();
+  await expect(open).toHaveAttribute('aria-expanded', 'false');
+  await open.click();
+  await page.getByRole('link', { name: 'Monitoreo', exact: true }).click();
+  await expect(page).toHaveURL(/\/monitoreo$/);
+  await expect(page.locator('#main-content')).toBeFocused();
+  await expect(open).toHaveAttribute('aria-expanded', 'false');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+});
+
+test('cartera sin cuentas ofrece pasos reales sin inventar indicadores', async ({ page }) => {
+  // Simula únicamente la ausencia de cuentas en la respuesta local; no altera la BD.
+  await page.route('**/v1/analytics?*', async (route) => {
+    const response = await route.fetch();
+    const report = await response.json();
+    report.freshness.accounts = 0;
+    await route.fulfill({ response, json: report });
+  });
+  await page.goto('/analitica');
+  await expect(page.getByRole('heading', { name: 'Prepara tu espacio' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Conectar Meta', exact: true })).toHaveAttribute(
+    'href',
+    '/conexiones',
+  );
+  await expect(page.getByRole('region', { name: 'Indicadores clave' })).toHaveCount(0);
+  expect(
+    (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze())
+      .violations,
+  ).toEqual([]);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
 test('configuración, evaluación, decisión e informes en navegador', async ({ page }) => {
   const errors: string[] = [];
@@ -140,6 +225,12 @@ test('viewer puede leer pero no configurar ni consultar operaciones', async ({ c
   await expect(page.getByRole('heading', { name: 'Monitoreo y seguimiento' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Evaluar ahora' })).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Estado técnico' })).toHaveCount(0);
+  await page.keyboard.press('ControlOrMeta+k');
+  await page
+    .getByRole('searchbox', { name: 'Buscar una vista', exact: true })
+    .fill('Estado técnico');
+  await expect(page.getByRole('status')).toHaveText('0 vistas disponibles');
+  await expect(page.getByRole('button', { name: 'Estado técnico Organización' })).toHaveCount(0);
   expect(
     (
       await context.request.get('/v1/operations', { headers: { 'x-tenant-id': f.tenantId } })

@@ -13,6 +13,7 @@ import type { MonitoringOverview, MonitorReport } from '../../src/modules/monito
 import type { MonitoringPolicy } from '../../src/monitoring-contracts.ts';
 import { api } from './api.ts';
 import { ErrorBox } from './pages.tsx';
+import { EmptyState } from './ui.tsx';
 
 const box = 'min-w-0 rounded-lg border border-gray-200 p-4 dark:border-gray-800',
   button =
@@ -130,9 +131,11 @@ export function MonitoringPage({ role }: { role: Role }) {
       {accounts.error && <ErrorBox error={accounts.error} />}
       {q.error && <ErrorBox error={q.error} />}
       {!accountId && (
-        <p className={box}>
-          Selecciona una cuenta para consultar sus reglas, incidentes e informes.
-        </p>
+        <EmptyState
+          icon="monitor"
+          title="Una vista clara de lo que necesita atención"
+          description="Selecciona una cuenta para consultar sus reglas, incidentes e informes."
+        />
       )}
       {q.isFetching && !data && accountId && <p role="status">Cargando monitoreo…</p>}
       {data && account && (
@@ -179,7 +182,7 @@ export function MonitoringPage({ role }: { role: Role }) {
             </p>
           )}
           {evaluate.error && <ErrorBox error={evaluate.error} />}
-          <nav className="flex flex-wrap gap-2" aria-label="Secciones de monitoreo">
+          <nav className="monitor-tabs" aria-label="Secciones de monitoreo">
             {[
               ['incidents', 'Incidentes'],
               ['followups', 'Antes y después'],
@@ -191,7 +194,7 @@ export function MonitoringPage({ role }: { role: Role }) {
                 type="button"
                 key={key}
                 aria-current={tab === key ? 'page' : undefined}
-                className={`${button} ${tab === key ? 'bg-gray-100 font-semibold dark:bg-gray-900' : ''}`}
+                className={tab === key ? 'is-current' : ''}
                 onClick={() => setTab(key ?? 'incidents')}
               >
                 {title}

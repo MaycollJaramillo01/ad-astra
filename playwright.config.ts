@@ -6,7 +6,7 @@ export default defineConfig({
   retries: 0,
   timeout: 30000,
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: 'http://localhost:5174',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
@@ -20,8 +20,8 @@ export default defineConfig({
       timeout: 90000,
     },
     {
-      command: 'pnpm dev:web --host 127.0.0.1 --port 5173 --strictPort',
-      url: 'http://localhost:5173',
+      command: 'pnpm dev:web --host 127.0.0.1 --port 5174 --strictPort',
+      url: 'http://localhost:5174',
       reuseExistingServer: false,
       timeout: 60000,
     },

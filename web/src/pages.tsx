@@ -3,6 +3,8 @@ import { type FormEvent, type ReactNode, useState } from 'react';
 import type { AdAccount, Client, Connection } from '../../src/contracts.ts';
 import type { Role } from '../../src/domain.ts';
 import { ApiError, api } from './api.ts';
+import { Icon } from './icons.tsx';
+import { EmptyState } from './ui.tsx';
 
 // Pantallas base. La UI oculta lo que el rol no puede hacer, pero quien decide es el servidor.
 
@@ -26,12 +28,22 @@ export function ClientsPage({ role }: { role: Role }) {
 
   return (
     <section aria-labelledby="clientes">
-      <h2 id="clientes" className="mb-4 text-lg font-semibold">
-        Clientes
-      </h2>
+      <header className="management-header">
+        <span className="page-title-icon">
+          <Icon name="clients" size={24} />
+        </span>
+        <div>
+          <p className="page-eyebrow">ORGANIZACIÓN</p>
+          <h2 id="clientes">Clientes</h2>
+          <p className="page-description">
+            Una cartera organizada. Un contexto propio para cada cliente.
+          </p>
+        </div>
+      </header>
       {isAdmin(role) && (
         <form
-          className="mb-4 flex items-end gap-2"
+          className="creation-panel"
+          aria-label="Crear cliente"
           onSubmit={(e: FormEvent) => {
             e.preventDefault();
             create.mutate({ name });
@@ -48,18 +60,42 @@ export function ClientsPage({ role }: { role: Role }) {
             />
           </label>
           <button type="submit" className={button} disabled={create.isPending}>
-            Crear
+            <Icon name="plus" size={16} /> Crear
           </button>
         </form>
       )}
       {create.error && <ErrorBox error={create.error} />}
       {clients.error && <ErrorBox error={clients.error} />}
       <Table
-        empty="Todavía no hay clientes."
+        loading={clients.isPending}
+        empty={
+          <EmptyState
+            icon="clients"
+            title="Tu cartera empieza aquí"
+            description={
+              isAdmin(role)
+                ? 'Añade tu primer cliente con el formulario de arriba para organizar sus cuentas.'
+                : 'Los clientes aparecerán aquí cuando tu equipo los añada.'
+            }
+          />
+        }
         headers={['Nombre', 'Estado', 'Alta']}
         rows={(clients.data ?? []).map((c) => ({
           key: c.id,
-          cells: [c.name, c.status, new Date(c.createdAt).toLocaleDateString('es')],
+          cells: [
+            <strong key="name" className="table-name">
+              {c.name}
+            </strong>,
+            <span key="status" className="status-label" data-state={c.status}>
+              {(
+                { active: 'Activo', paused: 'En pausa', offboarded: 'Baja' } as Record<
+                  string,
+                  string
+                >
+              )[c.status] ?? c.status}
+            </span>,
+            new Date(c.createdAt).toLocaleDateString('es'),
+          ],
         }))}
       />
     </section>
@@ -84,9 +120,18 @@ export function AccountsPage({ role }: { role: Role }) {
   });
   return (
     <section aria-labelledby="cuentas">
-      <h2 id="cuentas" className="mb-1 text-lg font-semibold">
-        Cuentas publicitarias
-      </h2>
+      <header className="management-header">
+        <span className="page-title-icon">
+          <Icon name="accounts" size={24} />
+        </span>
+        <div>
+          <p className="page-eyebrow">ORGANIZACIÓN</p>
+          <h2 id="cuentas">Cuentas publicitarias</h2>
+          <p className="page-description">
+            El punto de conexión entre tus clientes y sus campañas.
+          </p>
+        </div>
+      </header>
       <p className="mb-4 text-sm text-gray-500">
         Se descubren al validar una conexión con Meta. Al activar la sincronización se traen las
         entidades, los Insights recientes y el histórico (13 meses por defecto).
@@ -94,7 +139,18 @@ export function AccountsPage({ role }: { role: Role }) {
       {accounts.error && <ErrorBox error={accounts.error} />}
       {toggle.error && <ErrorBox error={toggle.error} />}
       <Table
-        empty="No hay cuentas visibles para ti."
+        loading={accounts.isPending}
+        empty={
+          <EmptyState
+            icon="accounts"
+            title="Aún no hay cuentas visibles para ti"
+            description={
+              isAdmin(role)
+                ? 'Añade una conexión con Meta. Las cuentas aparecerán después de validar sus permisos.'
+                : 'Tu equipo debe conectar las cuentas y darte acceso para poder consultarlas.'
+            }
+          />
+        }
         headers={[
           'Cuenta',
           'ID de Meta',
@@ -106,7 +162,9 @@ export function AccountsPage({ role }: { role: Role }) {
         rows={(accounts.data ?? []).map((a) => ({
           key: a.id,
           cells: [
-            a.name,
+            <strong key="name" className="table-name">
+              {a.name}
+            </strong>,
             a.metaAccountId,
             a.currency,
             a.timezoneName,
@@ -153,15 +211,23 @@ export function ConnectionsPage({ role }: { role: Role }) {
   if (!isAdmin(role)) return <p>Solo owner y admin gestionan las conexiones con Meta.</p>;
   return (
     <section aria-labelledby="conexiones">
-      <h2 id="conexiones" className="mb-1 text-lg font-semibold">
-        Conexiones con Meta
-      </h2>
+      <header className="management-header">
+        <span className="page-title-icon">
+          <Icon name="connect" size={24} />
+        </span>
+        <div>
+          <p className="page-eyebrow">ORGANIZACIÓN</p>
+          <h2 id="conexiones">Conexiones con Meta</h2>
+          <p className="page-description">Conecta el origen de los datos de tu cartera.</p>
+        </div>
+      </header>
       <p className="mb-4 text-sm text-gray-500">
         El token se cifra al guardarlo y nunca se vuelve a mostrar; solo su huella. Queda pendiente
         hasta que el siguiente ciclo de sincronización lo valida con Meta y descubre sus cuentas.
       </p>
       <form
-        className="mb-4 grid gap-2 sm:grid-cols-3"
+        className="connection-form"
+        aria-label="Añadir conexión con Meta"
         autoComplete="off"
         onSubmit={(e: FormEvent) => {
           e.preventDefault();
@@ -200,14 +266,21 @@ export function ConnectionsPage({ role }: { role: Role }) {
         </label>
         <div className="sm:col-span-3">
           <button type="submit" className={button} disabled={create.isPending}>
-            Guardar conexión
+            <Icon name="connect" size={16} /> Guardar conexión
           </button>
         </div>
       </form>
       {create.error && <ErrorBox error={create.error} />}
       {connections.error && <ErrorBox error={connections.error} />}
       <Table
-        empty="No hay conexiones."
+        loading={connections.isPending}
+        empty={
+          <EmptyState
+            icon="connect"
+            title="Tu próxima conexión empieza aquí"
+            description="Guarda una conexión en el formulario de arriba. Aquí podrás revisar su estado y última validación."
+          />
+        }
         headers={['Nombre', 'App', 'Huella del token', 'Estado', 'Última validación']}
         rows={(connections.data ?? []).map((c) => ({
           key: c.id,
@@ -222,14 +295,22 @@ function Table({
   headers,
   rows,
   empty,
+  loading = false,
 }: {
   headers: string[];
   rows: Array<{ key: string; cells: ReactNode[] }>;
-  empty: string;
+  empty: ReactNode;
+  loading?: boolean;
 }) {
-  if (rows.length === 0) return <p className="text-sm text-gray-500">{empty}</p>;
+  if (loading)
+    return (
+      <p role="status" className="table-loading">
+        Cargando registros…
+      </p>
+    );
+  if (rows.length === 0) return <>{empty}</>;
   return (
-    <div className="overflow-x-auto">
+    <div className="management-table overflow-x-auto">
       <table className="w-full text-left text-sm">
         <thead className="border-b border-gray-200 dark:border-gray-800">
           <tr>
@@ -258,12 +339,15 @@ function Table({
 
 export function ErrorBox({ error }: { error: Error }) {
   return (
-    <div
-      role="alert"
-      className="m-4 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800"
-    >
-      {error.message}
-      {error instanceof ApiError && error.detail ? `: ${error.detail}` : ''}
+    <div role="alert" className="app-error">
+      <Icon name="alert" size={19} />
+      <div>
+        <strong>No pudimos completar esta solicitud</strong>
+        <p>
+          {error.message}
+          {error instanceof ApiError && error.detail ? `: ${error.detail}` : ''}
+        </p>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,27 @@
 import type { Tone } from '../../src/modules/insights/catalog.ts';
+import { Icon, type IconName } from './icons.tsx';
 
 // Piezas de interfaz compartidas por las vistas.
+
+export function EmptyState({
+  icon,
+  title,
+  description,
+}: {
+  icon: IconName;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="empty-state">
+      <span className="empty-state-icon">
+        <Icon name={icon} size={25} />
+      </span>
+      <h3>{title}</h3>
+      <p>{description}</p>
+    </div>
+  );
+}
 
 /** Icono de estado: forma y color (nunca solo color), siempre junto a un texto. */
 export function ToneIcon({ tone }: { tone: Tone }) {

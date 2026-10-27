@@ -6,6 +6,7 @@ import type { AdAccount, Recommendation } from '../../src/contracts.ts';
 import { ACTION_STATES, ACTION_TYPES, type Role } from '../../src/domain.ts';
 import { api } from './api.ts';
 import { ErrorBox } from './pages.tsx';
+import { EmptyState } from './ui.tsx';
 
 const names: Record<string, string> = {
   proposed: 'Propuesta',
@@ -101,13 +102,10 @@ export function ActionCenterPage({ role, userId }: { role: Role; userId: string 
         persona autoriza el envío. Activar una entidad puede generar gasto. Las escrituras necesitan
         habilitación global, reglas por cuenta y consentimiento vigente.
       </p>
-      <ol
-        className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600 dark:text-gray-300"
-        aria-label="Etapas de una acción"
-      >
+      <ol className="action-stages" aria-label="Etapas de una acción">
         {ACTION_STATES.map((s, i) => (
           <li key={s}>
-            {i + 1}. {names[s]}
+            <span>{String(i + 1).padStart(2, '0')}</span> {names[s]}
           </li>
         ))}
       </ol>
@@ -161,9 +159,11 @@ export function ActionCenterPage({ role, userId }: { role: Role; userId: string 
         {q.isPending ? (
           <p role="status">Cargando acciones…</p>
         ) : q.data?.length === 0 ? (
-          <p className={box}>
-            Aún no hay acciones. Acepta una recomendación y crea su propuesta para comenzar.
-          </p>
+          <EmptyState
+            icon="action"
+            title="Aquí comienza el seguimiento de cada decisión"
+            description="Aún no hay acciones. Acepta una recomendación y crea su propuesta para comenzar."
+          />
         ) : (
           q.data
             ?.filter((a) => filter === 'all' || a.state === filter)
