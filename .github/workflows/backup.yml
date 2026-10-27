@@ -31,7 +31,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y postgresql-client-17
           echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
-      - uses: aws-actions/configure-aws-credentials@cabfdba3510de1431bac9dba27511d97497fc100
+      - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708
         with:
           role-to-assume: ${{ vars.BACKUP_AWS_ROLE_ARN }}
           aws-region: ${{ vars.BACKUP_AWS_REGION }}
