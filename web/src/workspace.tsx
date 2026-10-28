@@ -193,6 +193,7 @@ export function Shell({
     }
   }, [menu]);
   const go = (to: string) => {
+    setSearchOpen(false);
     navigate(to);
     dialog.current?.close();
     setMenu(false);
@@ -377,7 +378,10 @@ export function Shell({
       </div>
       <dialog
         ref={dialog}
-        onClose={() => setSearchOpen(false)}
+        onClose={() => {
+          // El evento de un cierre anterior puede llegar después de reabrir el diálogo.
+          if (!dialog.current?.open) setSearchOpen(false);
+        }}
         className="command-dialog"
         aria-labelledby="command-title"
       >

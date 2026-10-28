@@ -232,6 +232,10 @@ test('cartera y cuenta conservan contexto, orientan la resolución y funcionan e
   );
   await page.getByLabel('Período de analítica de la cuenta').selectOption('last_30d');
   const tabs = page.getByRole('navigation', { name: 'Secciones de la cuenta' });
+  await expect(tabs.getByRole('link', { name: /^Problemas/ })).toHaveAttribute(
+    'href',
+    /periodo=last_30d/,
+  );
   await tabs.getByRole('link', { name: /^Problemas/ }).click();
   await expect(page).toHaveURL(/periodo=last_30d/);
   await expect(
@@ -284,7 +288,11 @@ test('búsqueda encuentra cuentas y campañas y abre su espacio con teclado', as
   await search.press('ArrowDown');
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(new RegExp(`/cuentas/${f.accountId}`));
+  await expect(page.getByRole('heading', { name: 'Cuenta browser-a', exact: true })).toBeVisible();
   await page.keyboard.press('ControlOrMeta+k');
+  await expect(search).toBeFocused();
+  // Reproduce un evento de cierre que quedó en cola antes de la reapertura.
+  await page.getByRole('dialog').evaluate((dialog) => dialog.dispatchEvent(new Event('close')));
   await search.fill('Campaña browser-a');
   await expect(page.getByRole('button', { name: /Campaña browser-a Campaña/ })).toBeVisible();
   await search.press('ArrowDown');
