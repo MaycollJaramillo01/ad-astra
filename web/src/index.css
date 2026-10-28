@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./workspace.css";
+@import "./account-workspace.css";
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 @font-face {
   font-family: "DM Sans";

@@ -18,6 +18,7 @@ import {
   adAccounts,
   ads,
   adsets,
+  authUsers,
   campaigns,
   clientConsents,
   clients,
@@ -266,9 +267,10 @@ export function createActionService(deps: ActionDeps) {
     async list(ctx: TenantContext, accountId?: string) {
       return withContext(db, ctx, async (tx) => {
         const rows = await tx
-          .select({ a: actions })
+          .select({ a: actions, proposedByName: authUsers.name })
           .from(actions)
           .innerJoin(adAccounts, eq(adAccounts.id, actions.adAccountId))
+          .leftJoin(authUsers, eq(authUsers.id, actions.proposedBy))
           .where(
             and(
               clientScope(tx, ctx, adAccounts.clientId),
@@ -278,7 +280,8 @@ export function createActionService(deps: ActionDeps) {
           .orderBy(desc(actions.createdAt))
           .limit(100);
         const out: BudgetAction[] = [];
-        for (const { a } of rows) out.push(await dto(tx, a));
+        for (const { a, proposedByName } of rows)
+          out.push({ ...(await dto(tx, a)), proposedByName });
         return out;
       });
     },

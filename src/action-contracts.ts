@@ -87,6 +87,7 @@ export const ActionDto = z.object({
   state: z.enum(ACTION_STATES),
   revision: z.number().int(),
   proposedBy: z.uuid(),
+  proposedByName: z.string().nullable().optional(),
   preview: ActionPreview.nullable(),
   approvals: z.array(z.object({ userId: z.uuid(), at: z.iso.datetime() })),
   after: ActionSnapshot.nullable(),

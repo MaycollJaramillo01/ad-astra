@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type FormEvent, type ReactNode, useState } from 'react';
+import { Link } from 'react-router';
 import type { AdAccount, Client, Connection } from '../../src/contracts.ts';
 import type { Role } from '../../src/domain.ts';
 import { ApiError, api } from './api.ts';
@@ -116,7 +117,11 @@ export function AccountsPage({ role }: { role: Role }) {
         method: 'PATCH',
         body: { syncEnabled: !a.syncEnabled },
       }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['ad-accounts'] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['ad-accounts'] });
+      void queryClient.invalidateQueries({ queryKey: ['account-workspace'] });
+      void queryClient.invalidateQueries({ queryKey: ['accounts'] });
+    },
   });
   return (
     <section aria-labelledby="cuentas">
@@ -163,7 +168,9 @@ export function AccountsPage({ role }: { role: Role }) {
           key: a.id,
           cells: [
             <strong key="name" className="table-name">
-              {a.name}
+              <Link to={`/cuentas/${a.id}`} className="hover:underline">
+                {a.name}
+              </Link>
             </strong>,
             a.metaAccountId,
             a.currency,

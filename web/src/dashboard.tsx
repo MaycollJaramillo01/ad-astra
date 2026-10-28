@@ -27,6 +27,7 @@ import {
   type Tone,
   type Totals,
 } from '../../src/modules/insights/catalog.ts';
+import { accountPath } from './account-context.ts';
 import { ApiError, api, download } from './api.ts';
 import { type AuditLevel, AuditSection, HealthBadge, useAuditEntity } from './audit.tsx';
 import { type ChartPoint, linePath, NotAvailable, TrendChart } from './chart.tsx';
@@ -156,8 +157,33 @@ const reportQuery = (params: URLSearchParams) => ({
 
 // --- Página
 
-export function DashboardPage({ role }: { role: Role }) {
-  const params = useParams();
+export function DashboardPage({
+  role,
+  context,
+  embedded = false,
+  expectedAccountId,
+  mode,
+}: {
+  role: Role;
+  context?: { level: NodeLevel; id: string };
+  embedded?: boolean;
+  expectedAccountId?: string;
+  mode?: 'summary' | 'campaigns';
+}) {
+  const routeParams = useParams();
+  const params = context
+    ? {
+        level:
+          context.level === 'account'
+            ? 'cuenta'
+            : context.level === 'campaign'
+              ? 'campana'
+              : context.level === 'adset'
+                ? 'conjunto'
+                : 'anuncio',
+        id: context.id,
+      }
+    : routeParams;
   const [sp, setSp] = useSearchParams();
   const level: NodeLevel | undefined = params.level ? FROM_SLUG[params.level] : 'org';
   const apiParams = reportParams(level ?? 'org', params.id, sp);
@@ -216,6 +242,8 @@ export function DashboardPage({ role }: { role: Role }) {
     );
   const r = query.data;
   const stale = query.isPlaceholderData;
+  if (expectedAccountId && r.node.accountId !== expectedAccountId)
+    return <p role="alert">Esta entidad no pertenece a la cuenta seleccionada.</p>;
 
   return (
     <div className="space-y-5" aria-busy={query.isFetching}>
@@ -224,13 +252,25 @@ export function DashboardPage({ role }: { role: Role }) {
           ? 'Actualizando datos…'
           : `${r.node.name}: datos de ${formatRange(r.range.since, r.range.until)}`}
       </p>
-      {r.node.level !== 'org' && <Breadcrumbs report={r} search={carried(sp)} />}
-      <header className="analytics-header">
+      {!embedded && r.node.level !== 'org' && <Breadcrumbs report={r} search={carried(sp)} />}
+      <header
+        className={`analytics-header ${embedded && r.node.level === 'account' ? 'account-analytics-header' : ''}`}
+      >
         <div>
           <p className="page-eyebrow">
             {r.node.level === 'org' ? 'RENDIMIENTO DE TU CARTERA' : LEVEL_LABEL[r.node.level]}
           </p>
-          <h1>{r.node.level === 'org' ? 'Resumen de cartera' : r.node.name}</h1>
+          {embedded ? (
+            <h2>
+              {r.node.level === 'account'
+                ? mode === 'campaigns'
+                  ? 'Campañas de la cuenta'
+                  : 'Rendimiento de la cuenta'
+                : r.node.name}
+            </h2>
+          ) : (
+            <h1>{r.node.level === 'org' ? 'Resumen de cartera' : r.node.name}</h1>
+          )}
           <p className="page-description">
             {r.node.level === 'org'
               ? 'Una perspectiva común de tus cuentas, resultados y oportunidades.'
@@ -256,6 +296,11 @@ export function DashboardPage({ role }: { role: Role }) {
               Pronóstico y escenarios
             </Link>
           )}
+          {!embedded && r.node.accountId && (
+            <Link className="button-secondary" to={accountPath(r.node.accountId, 'resumen', sp)}>
+              Abrir espacio de la cuenta
+            </Link>
+          )}
           {role !== 'viewer' && (
             <Link
               className="button-secondary"
@@ -274,8 +319,8 @@ export function DashboardPage({ role }: { role: Role }) {
           <Toolbar report={r} sp={sp} set={set} />
           <div className={`space-y-5 transition-opacity ${stale ? 'opacity-60' : ''}`}>
             <DataNotes report={r} />
-            <KpiGrid report={r} />
-            {auditLevel && r.node.id && (
+            {mode !== 'campaigns' && <KpiGrid report={r} />}
+            {auditLevel && r.node.id && (!embedded || r.node.level !== 'account') && (
               <AuditSection
                 level={auditLevel}
                 id={r.node.id}
@@ -284,47 +329,50 @@ export function DashboardPage({ role }: { role: Role }) {
                 role={role}
               />
             )}
-            <div className="grid gap-5 lg:grid-cols-3">
-              <section aria-labelledby="tendencia" className="data-panel lg:col-span-2">
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <h2 id="tendencia" className="font-semibold">
-                    Tendencia diaria
-                  </h2>
-                  <label className="text-sm">
-                    <span className="mr-2 text-gray-600 dark:text-gray-300">Métrica</span>
-                    <select
-                      className={select}
-                      value={metric}
-                      onChange={(e) => set({ metrica: e.target.value })}
-                    >
-                      {METRIC_IDS.map((id) => (
-                        <option key={id} value={id}>
-                          {METRICS[id].label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-                <TrendChart
-                  metric={metric}
-                  points={chartPoints(r, metric)}
-                  currency={r.currency}
-                  range={r.range}
-                  compareRange={r.compare}
-                />
-              </section>
-              <ResultsBreakdown report={r} />
-            </div>
-            {r.children ? (
-              <ChildrenTable
-                key={`${r.node.level}:${r.node.id}`}
-                report={r}
-                search={carried(sp)}
-                health={audit.data?.childrenHealth ?? {}}
-              />
-            ) : (
-              <DailyTable key={`${r.node.level}:${r.node.id}`} report={r} search={carried(sp)} />
+            {mode !== 'campaigns' && (
+              <div className="grid gap-5 lg:grid-cols-3">
+                <section aria-labelledby="tendencia" className="data-panel lg:col-span-2">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <h2 id="tendencia" className="font-semibold">
+                      Tendencia diaria
+                    </h2>
+                    <label className="text-sm">
+                      <span className="mr-2 text-gray-600 dark:text-gray-300">Métrica</span>
+                      <select
+                        className={select}
+                        value={metric}
+                        onChange={(e) => set({ metrica: e.target.value })}
+                      >
+                        {METRIC_IDS.map((id) => (
+                          <option key={id} value={id}>
+                            {METRICS[id].label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <TrendChart
+                    metric={metric}
+                    points={chartPoints(r, metric)}
+                    currency={r.currency}
+                    range={r.range}
+                    compareRange={r.compare}
+                  />
+                </section>
+                <ResultsBreakdown report={r} />
+              </div>
             )}
+            {mode !== 'summary' &&
+              (r.children ? (
+                <ChildrenTable
+                  key={`${r.node.level}:${r.node.id}`}
+                  report={r}
+                  search={carried(sp)}
+                  health={audit.data?.childrenHealth ?? {}}
+                />
+              ) : (
+                <DailyTable key={`${r.node.level}:${r.node.id}`} report={r} search={carried(sp)} />
+              ))}
           </div>
         </>
       )}
@@ -1023,7 +1071,16 @@ function ChildrenTable({
     cell: (
       <div className="min-w-48">
         <Link
-          to={`${nodePath(level, c.id)}${search}`}
+          to={
+            level === 'account'
+              ? accountPath(c.id, 'resumen', new URLSearchParams(search))
+              : r.node.accountId
+                ? accountPath(r.node.accountId, 'campanas', new URLSearchParams(search), {
+                    entidad: c.id,
+                    nivel: level,
+                  })
+                : `${nodePath(level, c.id)}${search}`
+          }
           onMouseEnter={() => prefetch(c)}
           onFocus={() => prefetch(c)}
           className="font-medium hover:underline focus-visible:outline-2"

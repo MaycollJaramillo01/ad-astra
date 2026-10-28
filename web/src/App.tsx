@@ -3,6 +3,7 @@ import { type FormEvent, useState } from 'react';
 import { Navigate, Route, Routes } from 'react-router';
 import type { Me } from '../../src/contracts.ts';
 import { AccountPage } from './account.tsx';
+import { AccountPortfolio, AccountWorkspace } from './account-workspace.tsx';
 import { ActionCenterPage } from './actions.tsx';
 import { ApiError, api, authClient, getActiveTenant, setActiveTenant } from './api.ts';
 import { AssistantPage } from './assistant.tsx';
@@ -38,7 +39,7 @@ export function App() {
   return (
     <Shell me={me.data} activeTenantId={active.tenantId}>
       <Routes>
-        <Route path="/" element={<Navigate to="/analitica" replace />} />
+        <Route path="/" element={<Navigate to="/cuentas" replace />} />
         <Route path="/analitica" element={<DashboardPage role={active.role} />} />
         <Route path="/analitica/:level/:id" element={<DashboardPage role={active.role} />} />
         <Route path="/prevision" element={<ForecastPage />} />
@@ -58,7 +59,12 @@ export function App() {
         />
         <Route path="/asistente" element={<AssistantPage role={active.role} />} />
         <Route path="/clientes" element={<ClientsPage role={active.role} />} />
-        <Route path="/cuentas" element={<AccountsPage role={active.role} />} />
+        <Route path="/cuentas" element={<AccountPortfolio role={active.role} />} />
+        <Route path="/cuentas/gestion" element={<AccountsPage role={active.role} />} />
+        <Route
+          path="/cuentas/:accountId"
+          element={<AccountWorkspace role={active.role} userId={me.data.user.id} />}
+        />
         <Route path="/conexiones" element={<ConnectionsPage role={active.role} />} />
         <Route path="/cuenta" element={<AccountPage />} />
         <Route path="*" element={<p>Página no encontrada.</p>} />

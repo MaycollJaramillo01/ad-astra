@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, gte, inArray, isNull, sql } from 'drizzle-orm';
 import type { z } from 'zod';
 import { type Db, first, type Tx, withContext } from '../../db/client.ts';
 import {
@@ -831,6 +831,27 @@ export function createMonitoringService(db: Db) {
           )
           .orderBy(desc(monitoringDeliveries.createdAt))
           .limit(50);
+        const decisions = await tx
+          .selectDistinctOn([monitoringEvents.incidentId], {
+            incidentId: monitoringEvents.incidentId,
+            actorName: authUsers.name,
+            actorId: monitoringEvents.actorId,
+            at: monitoringEvents.at,
+            data: monitoringEvents.data,
+          })
+          .from(monitoringEvents)
+          .leftJoin(authUsers, eq(authUsers.id, monitoringEvents.actorId))
+          .where(
+            and(
+              eq(monitoringEvents.adAccountId, id),
+              eq(monitoringEvents.event, 'incident_decided'),
+            ),
+          )
+          .orderBy(
+            monitoringEvents.incidentId,
+            desc(monitoringEvents.at),
+            desc(monitoringEvents.id),
+          );
         return {
           policy: { revision: p.revision, config: p.config },
           readConsentActive: await hasReadConsent(tx, account),
@@ -839,6 +860,7 @@ export function createMonitoringService(db: Db) {
           reports,
           followups,
           notifications,
+          decisions,
           series: data.series,
           entities: data.entities.map(({ level, id, name }) => ({ level, id, name })),
           crm: {
@@ -953,8 +975,9 @@ export function createMonitoringService(db: Db) {
       withContext(db, ctx, async (tx) => {
         await findAccount(tx, ctx, id);
         return tx
-          .select()
+          .select({ ...getTableColumns(monitoringEvents), actorName: authUsers.name })
           .from(monitoringEvents)
+          .leftJoin(authUsers, eq(authUsers.id, monitoringEvents.actorId))
           .where(eq(monitoringEvents.adAccountId, id))
           .orderBy(desc(monitoringEvents.at))
           .limit(300);

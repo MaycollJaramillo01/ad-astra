@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useId } from 'react';
+import { Link, useSearchParams } from 'react-router';
 import type { AuditCatalog, AuditEntity, Health } from '../../src/contracts.ts';
 import type { Role } from '../../src/domain.ts';
 import type { Tone } from '../../src/modules/insights/catalog.ts';
+import { accountPath } from './account-context.ts';
 import { api } from './api.ts';
 import { formatDay } from './format.ts';
 import { ErrorBox } from './pages.tsx';
@@ -80,7 +82,14 @@ export function AuditSection({
         accountId={level === 'account' ? accountId : null}
         canRun={RUNNERS.includes(role)}
       />
-      <FindingsList entity={entity.data} catalog={catalog.data} currency={currency} nodeId={id} />
+      <FindingsList
+        entity={entity.data}
+        catalog={catalog.data}
+        currency={currency}
+        nodeId={id}
+        accountId={accountId}
+        canAct={role !== 'viewer'}
+      />
     </div>
   );
 }
@@ -154,7 +163,7 @@ function HealthPanel({
           <p className="text-xs text-gray-500">
             Cobertura {Math.round(health.coverage * 100)} %
             {health.confidence !== null && ` · confianza ${confidenceLabel(health.confidence)}`} ·{' '}
-            {health.formulaVersion}, al {formatDay(health.date, true)} ({health.windowDays} días)
+            al {formatDay(health.date, true)} ({health.windowDays} días)
           </p>
           <ul className="mt-3 space-y-2">
             {health.components.map((c) => {
@@ -210,12 +219,12 @@ function HealthPanel({
               Cómo se calcula
             </summary>
             <p className="mt-1">
-              Cada subíndice compara la estimación con su referencia (objetivo del cliente, línea
-              base propia o mediana de la cuenta): s = 80 + 40 · log2(q), entre 0 y 100, donde q
-              &gt; 1 es mejor que la referencia. La entrega es lineal (100 = gasta su presupuesto o
-              entrega todos los días). La puntuación es la media ponderada de los subíndices con
-              muestra suficiente; si cubren menos del 60 % del peso se muestra «Datos
-              insuficientes», nunca una nota baja.
+              Versión {health.formulaVersion}. Cada subíndice compara la estimación con su
+              referencia (objetivo del cliente, línea base propia o mediana de la cuenta): s = 80 +
+              40 · log2(q), entre 0 y 100, donde q &gt; 1 es mejor que la referencia. La entrega es
+              lineal (100 = gasta su presupuesto o entrega todos los días). La puntuación es la
+              media ponderada de los subíndices con muestra suficiente; si cubren menos del 60 % del
+              peso se muestra «Datos insuficientes», nunca una nota baja.
             </p>
           </details>
         </>
@@ -275,12 +284,17 @@ function FindingsList({
   catalog,
   currency,
   nodeId,
+  accountId,
+  canAct,
 }: {
   entity: AuditEntity;
   catalog: AuditCatalog | undefined;
   currency: string | null;
   nodeId: string;
+  accountId: string | null;
+  canAct: boolean;
 }) {
+  const [sp] = useSearchParams();
   const rules = new Map((catalog?.rules ?? []).map((r) => [r.id, r]));
   return (
     <section
@@ -338,6 +352,38 @@ function FindingsList({
                   <p className="mt-1 text-sm text-gray-700 dark:text-gray-200">
                     → {f.recommendationText}
                   </p>
+                )}
+                {accountId && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Link
+                      className="button-secondary"
+                      to={accountPath(
+                        accountId,
+                        'campanas',
+                        sp,
+                        f.entityLevel === 'account'
+                          ? {}
+                          : { entidad: f.entityMetaId, nivel: f.entityLevel },
+                      )}
+                    >
+                      Revisar entidad y resultados
+                    </Link>
+                    {canAct && (
+                      <Link
+                        className="button-secondary"
+                        to={accountPath(
+                          accountId,
+                          'acciones',
+                          sp,
+                          f.entityLevel === 'account'
+                            ? {}
+                            : { entidad: f.entityMetaId, nivel: f.entityLevel },
+                        )}
+                      >
+                        Revisar posibles acciones
+                      </Link>
+                    )}
+                  </div>
                 )}
                 <details className="mt-2 text-xs">
                   <summary className="cursor-pointer text-gray-600 dark:text-gray-300">

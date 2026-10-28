@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useId, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import type { BudgetAction, Policy } from '../../src/action-contracts.ts';
 import type { AdAccount, Recommendation } from '../../src/contracts.ts';
 import { ACTION_STATES, ACTION_TYPES, type Role } from '../../src/domain.ts';
+import type { MonitoringOverview } from '../../src/modules/monitoring/service.ts';
+import { accountPath } from './account-context.ts';
 import { api } from './api.ts';
 import { ErrorBox } from './pages.tsx';
 import { EmptyState } from './ui.tsx';
@@ -29,7 +31,13 @@ const box = 'min-w-0 rounded-lg border border-gray-200 p-4 dark:border-gray-800'
 const admin = (role: Role) => role === 'owner' || role === 'admin';
 const minors = (n: string, currency: string) =>
   `${Number(n).toLocaleString('es')} unid. menores ${currency}`;
-const refreshKeys = ['actions', 'recommendations', 'action-policy'];
+const refreshKeys = [
+  'actions',
+  'recommendations',
+  'action-policy',
+  'account-workspace',
+  'monitoring',
+];
 function useRefresh() {
   const cache = useQueryClient();
   return () => {
@@ -37,9 +45,24 @@ function useRefresh() {
   };
 }
 
-export function ActionCenterPage({ role, userId }: { role: Role; userId: string }) {
-  const { accountId } = useParams(),
-    navigate = useNavigate();
+export function ActionCenterPage({
+  role,
+  userId,
+  selectedAccountId,
+  embedded = false,
+}: {
+  role: Role;
+  userId: string;
+  selectedAccountId?: string;
+  embedded?: boolean;
+}) {
+  const params = useParams(),
+    accountId = selectedAccountId ?? params.accountId;
+  const [sp, setSp] = useSearchParams();
+  const entity = sp.get('entidad'),
+    entityLevel = sp.get('nivel'),
+    selectedAction = sp.get('accion');
+  const navigate = useNavigate();
   const accounts = useQuery({
     queryKey: ['accounts'],
     queryFn: () => api<AdAccount[]>('/v1/ad-accounts'),
@@ -58,6 +81,14 @@ export function ActionCenterPage({ role, userId }: { role: Role; userId: string 
     queryFn: () =>
       api<Recommendation[]>(`/v1/recommendations${accountId ? `?adAccountId=${accountId}` : ''}`),
   });
+  const monitor = useQuery({
+    queryKey: ['monitoring', accountId],
+    queryFn: () => api<MonitoringOverview>(`/v1/monitoring/${accountId}`),
+    enabled: Boolean(accountId),
+    staleTime: 30_000,
+  });
+  const entityName = (level: string, id: string) =>
+    monitor.data?.entities.find((e) => e.level === level && e.id === id)?.name;
   const [filter, setFilter] = useState('all');
   const queryError = q.error ?? accounts.error ?? recs.error;
   const account = accounts.data?.find((a) => a.id === accountId);
@@ -67,51 +98,74 @@ export function ActionCenterPage({ role, userId }: { role: Role; userId: string 
         ['open', 'accepted'].includes(r.status) &&
         r.actionType !== 'review' &&
         r.entityLevel !== 'account' &&
-        !q.data?.some((a) => a.recommendationId === r.id),
+        !q.data?.some((a) => a.recommendationId === r.id) &&
+        (!entity || (r.entityMetaId === entity && (!entityLevel || r.entityLevel === entityLevel))),
     ) ?? [];
   return (
     <div className="space-y-5">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">Action Center</h1>
-          <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-            Revisa el cambio, autoriza su ejecución y comprueba lo que Meta aplicó.
-          </p>
-        </div>
-        <label className="flex flex-col gap-1 text-sm">
-          Cuenta
-          <select
-            className={input}
-            value={accountId ?? ''}
-            onChange={(e) => navigate(e.target.value ? `/acciones/${e.target.value}` : '/acciones')}
+      {!embedded && (
+        <header className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-semibold">Action Center</h1>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+              Revisa el cambio, autoriza su ejecución y comprueba lo que Meta aplicó.
+            </p>
+          </div>
+          <label className="flex flex-col gap-1 text-sm">
+            Cuenta
+            <select
+              className={input}
+              value={accountId ?? ''}
+              onChange={(e) =>
+                navigate(e.target.value ? `/acciones/${e.target.value}` : '/acciones')
+              }
+            >
+              <option value="">Todas las cuentas</option>
+              {accounts.data?.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name} · {a.currency}
+                </option>
+              ))}
+            </select>
+          </label>
+        </header>
+      )}
+      {!embedded && accountId && (
+        <Link className="button-secondary" to={accountPath(accountId, 'acciones')}>
+          Abrir espacio de la cuenta
+        </Link>
+      )}
+      {(entity || selectedAction) && (
+        <div className="account-filter-note">
+          <p>Mostrando {entity ? 'la entidad que estás revisando' : 'la acción seleccionada'}.</p>
+          <button
+            className="button-secondary"
+            type="button"
+            onClick={() =>
+              setSp((previous) => {
+                const next = new URLSearchParams(previous);
+                next.delete('entidad');
+                next.delete('nivel');
+                next.delete('accion');
+                return next;
+              })
+            }
           >
-            <option value="">Todas las cuentas</option>
-            {accounts.data?.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name} · {a.currency}
-              </option>
-            ))}
-          </select>
-        </label>
-      </header>
-      <p
-        role="note"
-        className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm dark:border-amber-700 dark:bg-amber-950/30"
-      >
-        Aceptar una recomendación crea una intención. Solo un diff revisado y aprobado por otra
-        persona autoriza el envío. Activar una entidad puede generar gasto. Las escrituras necesitan
-        habilitación global, reglas por cuenta y consentimiento vigente.
-      </p>
-      <ol className="action-stages" aria-label="Etapas de una acción">
-        {ACTION_STATES.map((s, i) => (
-          <li key={s}>
-            <span>{String(i + 1).padStart(2, '0')}</span> {names[s]}
-          </li>
-        ))}
-      </ol>
+            Ver todas las acciones de la cuenta
+          </button>
+        </div>
+      )}
+      <details className="text-sm text-gray-500">
+        <summary>Cómo se autoriza un cambio</summary>
+        <p className="mt-2">
+          Aceptar una recomendación crea una intención. Solo un diff revisado y aprobado por otra
+          persona autoriza el envío. Activar una entidad puede generar gasto. Las escrituras
+          necesitan habilitación global, reglas por cuenta y consentimiento vigente.
+        </p>
+      </details>
       {queryError && <ErrorBox error={queryError} />}
-      {accountId && (
-        <PolicyEditor
+      {accountId && !embedded && (
+        <AccountActionPolicy
           key={accountId}
           accountId={accountId}
           role={role}
@@ -127,13 +181,16 @@ export function ActionCenterPage({ role, userId }: { role: Role; userId: string 
           </p>
           {actionable.length === 0 ? (
             <p className="text-sm text-gray-500">
-              No hay recomendaciones aceptadas pendientes de convertir en acciones.
+              {entity
+                ? 'No hay recomendaciones ejecutables pendientes para esta entidad. Revisa sus hallazgos y la evidencia antes de preparar cambios.'
+                : 'No hay recomendaciones ejecutables pendientes de convertir en propuestas.'}
             </p>
           ) : (
             actionable.map((r) => (
               <RecommendationAction
                 key={r.id}
                 recommendation={r}
+                entityName={entityName(r.entityLevel, r.entityMetaId)}
                 role={role}
                 currency={accounts.data?.find((a) => a.id === r.adAccountId)?.currency ?? ''}
               />
@@ -166,11 +223,37 @@ export function ActionCenterPage({ role, userId }: { role: Role; userId: string 
           />
         ) : (
           q.data
-            ?.filter((a) => filter === 'all' || a.state === filter)
+            ?.filter(
+              (a) =>
+                (filter === 'all' || a.state === filter) &&
+                (!selectedAction || a.id === selectedAction) &&
+                (!entity ||
+                  (a.entityMetaId === entity && (!entityLevel || a.entityLevel === entityLevel))),
+            )
             .map((a) => (
-              <ActionCard key={`${a.id}:${a.revision}`} action={a} role={role} userId={userId} />
+              <ActionCard
+                key={`${a.id}:${a.revision}`}
+                action={a}
+                role={role}
+                userId={userId}
+                entityName={entityName(a.entityLevel, a.entityMetaId)}
+              />
             ))
         )}
+        {q.data &&
+          q.data.length > 0 &&
+          !q.data.some(
+            (a) =>
+              (filter === 'all' || a.state === filter) &&
+              (!selectedAction || a.id === selectedAction) &&
+              (!entity ||
+                (a.entityMetaId === entity && (!entityLevel || a.entityLevel === entityLevel))),
+          ) && (
+            <p className={box}>
+              No hay acciones con estos filtros. Puedes revisar las recomendaciones o mostrar todas
+              las acciones de la cuenta.
+            </p>
+          )}
         <p className="text-xs text-gray-500">
           Se muestran las 100 acciones más recientes del alcance seleccionado. El estado se
           actualiza mientras hay trabajo pendiente.
@@ -182,10 +265,12 @@ export function ActionCenterPage({ role, userId }: { role: Role; userId: string 
 
 function RecommendationAction({
   recommendation: r,
+  entityName,
   currency,
   role,
 }: {
   recommendation: Recommendation;
+  entityName?: string;
   currency: string;
   role: Role;
 }) {
@@ -222,7 +307,7 @@ function RecommendationAction({
       }}
     >
       <p className="text-sm">
-        <strong>{names[r.actionType]}</strong> · {r.entityLevel} {r.entityMetaId}
+        <strong>{names[r.actionType]}</strong> · {entityName ?? `Entidad ${r.entityMetaId}`}
       </p>
       <p className="text-sm text-gray-600 dark:text-gray-300">{r.rationale}</p>
       <div className="flex flex-wrap items-end gap-2">
@@ -274,11 +359,14 @@ function ActionCard({
   action: a,
   role,
   userId,
+  entityName,
 }: {
   action: BudgetAction;
   role: Role;
   userId: string;
+  entityName?: string;
 }) {
+  const [sp] = useSearchParams();
   const refresh = useRefresh(),
     id = useId();
   const [reason, setReason] = useState(''),
@@ -312,10 +400,10 @@ function ActionCard({
     ['executing', 'verifying'].includes(a.state) &&
     Date.now() - Date.parse(a.updatedAt) > 15 * 60_000;
   return (
-    <article className={`${box} space-y-3`}>
+    <article className={`${box} action-card space-y-3`} id={`accion-${a.id}`}>
       <header className="flex flex-wrap items-center gap-2">
         <h3 className="font-semibold">
-          {names[a.operation]} · {a.entityLevel} {a.entityMetaId}
+          {names[a.operation]} · {entityName ?? `Entidad ${a.entityMetaId}`}
         </h3>
         <span
           className={`ml-auto rounded px-2 py-1 text-xs ${a.state === 'failed' ? 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200' : 'bg-gray-100 dark:bg-gray-900'}`}
@@ -323,10 +411,40 @@ function ActionCard({
           {names[a.state]}
         </span>
       </header>
+      <ol className="account-action-progress" aria-label="Progreso de la acción">
+        {(['proposed', 'review', 'approved', 'executing', 'verifying', 'closed'] as const).map(
+          (state, index, steps) => (
+            <li
+              key={state}
+              aria-current={a.state === state ? 'step' : undefined}
+              className={
+                a.state === state
+                  ? 'current'
+                  : (steps.indexOf(a.state as typeof state) > index && a.state !== 'closed') ||
+                      (a.state === 'closed' && a.confirmedWrite)
+                    ? 'complete'
+                    : ''
+              }
+            >
+              <span>{index + 1}</span>
+              {
+                {
+                  proposed: 'Propuesta',
+                  review: 'Revisión',
+                  approved: 'Autorizada',
+                  executing: 'Envío',
+                  verifying: 'Comprobación',
+                  closed: 'Cierre',
+                }[state]
+              }
+            </li>
+          ),
+        )}
+      </ol>
       <p className="text-sm">{a.reason}</p>
       <p className="text-xs text-gray-500">
         Acción {a.id.slice(0, 8)} · revisión {a.revision} · propuesta por{' '}
-        {a.proposedBy === userId ? 'ti' : a.proposedBy.slice(0, 8)}
+        {a.proposedBy === userId ? 'ti' : (a.proposedByName ?? 'otro miembro del equipo')}
         {a.rollbackOf && ` · inversa de ${a.rollbackOf.slice(0, 8)}`}
       </p>
       {p && (
@@ -420,10 +538,21 @@ function ActionCard({
         </button>
         <Link
           className={`${button} inline-block`}
-          to={`/analitica/${a.entityLevel === 'campaign' ? 'campana' : a.entityLevel === 'adset' ? 'conjunto' : 'anuncio'}/${a.entityMetaId}`}
+          to={accountPath(a.adAccountId, 'campanas', sp, {
+            entidad: a.entityMetaId,
+            nivel: a.entityLevel,
+          })}
         >
           Ver entidad
         </Link>
+        {a.dispatchAt && (
+          <Link
+            className={`${button} inline-block`}
+            to={accountPath(a.adAccountId, 'seguimiento', sp, { accion: a.id })}
+          >
+            Ver seguimiento del resultado
+          </Link>
+        )}
       </div>
       {a.state === 'review' && a.proposedBy === userId && (
         <p className="text-sm text-gray-500">Otra persona autorizada debe aprobar tu propuesta.</p>
@@ -555,7 +684,7 @@ function ActionCard({
   );
 }
 
-function PolicyEditor({
+export function AccountActionPolicy({
   accountId,
   role,
   currency,

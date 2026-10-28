@@ -17,6 +17,7 @@ import { tenantOf } from '../../platform/http.ts';
 import { cancelAccountJobs, ensureAccountJobs, hasReadConsent } from '../meta/sync.ts';
 import { clientScope } from '../tenancy/clients.routes.ts';
 import { findAccount } from './accounts.ts';
+import { workspaceRoutes } from './workspace.routes.ts';
 
 // Cuentas publicitarias y campañas. Las crea el descubrimiento de Meta; aquí se consultan, se
 // asignan a clientes y se activa su sincronización. Las cuentas sin cliente solo las ven owner y admin.
@@ -39,6 +40,7 @@ const accountDto = (a: typeof adAccounts.$inferSelect) => ({
 });
 
 export async function catalogRoutes(fastify: FastifyInstance, { db }: { db: Db }) {
+  await workspaceRoutes(fastify, { db });
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
   app.get(

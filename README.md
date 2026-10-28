@@ -2,6 +2,7 @@
 
 Plataforma interna de la agencia para conectar las cuentas publicitarias de Meta autorizadas por los clientes, sincronizar su rendimiento, auditarlas, calificar su salud y alertar de problemas, con optimizaciones solo bajo aprobación humana.
 - Documento rector: [docs/MASTER_PLAN.md](docs/MASTER_PLAN.md)
+- [Monitoreo por cuenta](docs/ACCOUNT_WORKSPACE.md): cartera por prioridad, problemas con siguientes pasos, acciones, seguimiento y búsqueda de clientes/cuentas/campañas.
 - Fases y estado: [docs/ROADMAP.md](docs/ROADMAP.md)
 - Estado actual: ingesta de Meta, analítica, auditorías, forecasting, Action Center y [monitoreo e informes](docs/MONITORING.md) implementados. La activación de escrituras y correo requiere configuración y autorización; el piloto con cuentas reales sigue pendiente.
 - [Auditoría y preparación para producción](docs/PRODUCTION_READINESS_2026-10-26.md): no listo para producción; [operación y recuperación](docs/OPERATIONS.md) y [modelo de costos](docs/OPERATING_COSTS.md).
