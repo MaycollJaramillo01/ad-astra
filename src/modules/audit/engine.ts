@@ -133,7 +133,12 @@ export function runAudit(input: AuditInput, config: AuditConfig): AuditResult {
     const params = ruleParams(rule, override?.params);
     for (const c of targets) {
       if (!appliesTo(rule, c)) continue;
-      const outcome = rule.evaluate(c, params as never, env);
+      let outcome = rule.evaluate(c, params as never, env);
+      // Entidad "apagada" (pausada, archivada o borrada, ella o un padre): es una publicación vieja,
+      // no parte de lo que se gestiona hoy. No se abren hallazgos nuevos sobre ella y los ya abiertos
+      // se resuelven al quedar "no disparados". (R-DEL-010, R-STR-011 y R-CHG-014 ya lo hacían por su
+      // cuenta; esto lo unifica para todo el catálogo.)
+      if (c.off && outcome.status === 'triggered') outcome = { status: 'not_triggered' };
       evaluations.push({
         ruleId: rule.id,
         level: c.level,

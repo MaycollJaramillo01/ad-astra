@@ -6,7 +6,8 @@ import type { BaseField } from '../insights/catalog.ts';
 // datos de entrada y configuración. Todo umbral es un parámetro con esquema; las referencias
 // salen de objetivos del cliente o de los propios datos (nunca de "benchmarks del sector").
 
-export const AUDIT_ENGINE_VERSION = '1.0.0';
+// 1.1.0: el motor ya no abre hallazgos sobre entidades apagadas (pausadas, archivadas o borradas).
+export const AUDIT_ENGINE_VERSION = '1.1.0';
 export const HEALTH_FORMULA_VERSION = 'health-v1';
 
 // --- Taxonomía de problemas
