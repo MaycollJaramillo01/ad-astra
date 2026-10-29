@@ -114,6 +114,8 @@ export interface EntityContext {
   days: Day[];
   /** Activa en Meta (ella y sus padres). */
   active: boolean;
+  /** Apagada (pausada, archivada o borrada), ella o un padre: no es de lo que se gestiona hoy. */
+  off: boolean;
   cur: Sums;
   /** Para las conversiones: solo los días maduros de la evaluación. */
   mature: Sums;
@@ -136,6 +138,13 @@ export const eventsOf = (s: Sums, kpi: KpiEvent) => s[kpi.field as keyof Sums] a
 
 /** Mínimo de eventos de la línea base para usarla como referencia. */
 export const MIN_BASELINE = { events: 5, impressions: 1000, clicks: 100 };
+
+/**
+ * Estados "apagados": alguien pausó o archivó la entidad (o un padre), o Meta ya no la lista.
+ * No son parte de lo que se gestiona hoy, a diferencia de un problema de entrega sobre algo
+ * encendido (DISAPPROVED, WITH_ISSUES, PENDING_BILLING_INFO), que sí es un hallazgo actual.
+ */
+const OFF_STATUSES = new Set(['PAUSED', 'CAMPAIGN_PAUSED', 'ADSET_PAUSED', 'ARCHIVED', 'DELETED']);
 
 /** CV del costo diario por evento sin el ruido esperado de Poisson: √max(0, CV² − 1/media). */
 function dailyCostCv(
@@ -193,6 +202,7 @@ export function buildContexts(input: AuditInput, config: AuditConfig) {
     const campaign = entity ? (entity.level === 'campaign' ? entity : campaignOf(entity)) : null;
     const adset = entity ? (entity.level === 'adset' ? entity : adsetOf(entity)) : null;
     const isActive = (x: EntityInput | null) => !x || (x.status === 'ACTIVE' && !x.deleted);
+    const isOff = (x: EntityInput | null) => !!x && (x.deleted || OFF_STATUSES.has(x.status ?? ''));
     return {
       level,
       id,
@@ -203,6 +213,7 @@ export function buildContexts(input: AuditInput, config: AuditConfig) {
       conversion,
       days,
       active: entity ? isActive(entity) && isActive(campaign) && isActive(adset) : true,
+      off: entity ? isOff(entity) || isOff(campaign) || isOff(adset) : false,
       cur: sumDays(days, win.evaluation),
       mature: sumDays(days, conversion ? win.mature : win.evaluation),
       base: sumDays(days, win.baseline),
