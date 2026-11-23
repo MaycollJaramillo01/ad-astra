@@ -88,6 +88,14 @@ it('un token inválido se rechaza sin repetirlo en el error', async () => {
   expect(res.body).not.toContain(short);
 });
 
+it('descubrir ahora solo acepta conexiones activas', async () => {
+  const api = t.as(a.owner);
+  const id = (
+    await api.post('/v1/meta/connections', { label: 'Pend', metaAppId: '1', accessToken: CANARY })
+  ).json().id;
+  expect((await api.post(`/v1/meta/connections/${id}/discover`)).statusCode).toBe(404);
+});
+
 it('al revocar una conexión se borra el cifrado', async () => {
   const api = t.as(a.owner);
   const id = (

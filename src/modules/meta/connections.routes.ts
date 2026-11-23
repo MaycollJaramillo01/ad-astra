@@ -10,7 +10,7 @@ import { fingerprint, type TokenCipher } from '../../platform/crypto.ts';
 import { notFound } from '../../platform/errors.ts';
 import { userEvent } from '../../platform/events.ts';
 import { tenantOf } from '../../platform/http.ts';
-import { cancelConnectionJobs, enqueueTokenValidation, tokenAad } from './sync.ts';
+import { cancelConnectionJobs, discoverNow, enqueueTokenValidation, tokenAad } from './sync.ts';
 
 // Conexiones de Meta (docs/API_INTEGRATIONS.md §1.4). El token es de solo escritura: se cifra
 // al recibirlo y nunca sale en una respuesta, un log ni un evento (solo su huella).
@@ -96,6 +96,28 @@ export async function connectionRoutes(
         return created;
       });
       return reply.status(201).send(connectionDto(row));
+    },
+  );
+
+  app.post(
+    '/v1/meta/connections/:id/discover',
+    {
+      config: { access: { permission: 'connections:manage' } },
+      schema: { params: IdParams, response: { 202: z.object({ queued: z.literal(true) }) } },
+    },
+    async (request, reply) => {
+      const ctx = tenantOf(request);
+      await withContext(db, ctx, async (tx) => {
+        const [row] = await tx
+          .select({ id: metaConnections.id })
+          .from(metaConnections)
+          .where(
+            and(eq(metaConnections.id, request.params.id), eq(metaConnections.status, 'active')),
+          );
+        if (!row) throw notFound('Conexión activa');
+        await discoverNow(tx, ctx.tenantId, row.id);
+      });
+      return reply.status(202).send({ queued: true as const });
     },
   );
 

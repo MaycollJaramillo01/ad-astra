@@ -215,6 +215,11 @@ export function ConnectionsPage({ role }: { role: Role }) {
     },
   });
 
+  const discover = useMutation({
+    mutationFn: (id: string) =>
+      api<{ queued: true }>(`/v1/meta/connections/${id}/discover`, { method: 'POST' }),
+  });
+
   if (!isAdmin(role)) return <p>Solo owner y admin gestionan las conexiones con Meta.</p>;
   return (
     <section aria-labelledby="conexiones">
@@ -279,6 +284,12 @@ export function ConnectionsPage({ role }: { role: Role }) {
       </form>
       {create.error && <ErrorBox error={create.error} />}
       {connections.error && <ErrorBox error={connections.error} />}
+      {discover.error && <ErrorBox error={discover.error} />}
+      {discover.isSuccess && (
+        <p role="status" className="mb-4 text-sm">
+          Búsqueda de cuentas en cola. Las nuevas aparecerán en Cuentas en unos minutos.
+        </p>
+      )}
       <Table
         loading={connections.isPending}
         empty={
@@ -288,10 +299,27 @@ export function ConnectionsPage({ role }: { role: Role }) {
             description="Guarda una conexión en el formulario de arriba. Aquí podrás revisar su estado y última validación."
           />
         }
-        headers={['Nombre', 'App', 'Huella del token', 'Estado', 'Última validación']}
+        headers={['Nombre', 'App', 'Huella del token', 'Estado', 'Última validación', '']}
         rows={(connections.data ?? []).map((c) => ({
           key: c.id,
-          cells: [c.label, c.metaAppId, c.tokenFingerprint, c.status, when(c.lastValidatedAt)],
+          cells: [
+            c.label,
+            c.metaAppId,
+            c.tokenFingerprint,
+            c.status,
+            when(c.lastValidatedAt),
+            c.status === 'active' ? (
+              <button
+                key="discover"
+                type="button"
+                className="underline"
+                disabled={discover.isPending}
+                onClick={() => discover.mutate(c.id)}
+              >
+                Descubrir cuentas ahora
+              </button>
+            ) : null,
+          ],
         }))}
       />
     </section>

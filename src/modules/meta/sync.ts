@@ -9,6 +9,7 @@ import {
   campaigns,
   clientConsents,
   insightsDaily,
+  jobs,
   LEVELS,
   type Level,
   metaConnections,
@@ -94,6 +95,22 @@ export const enqueueTokenValidation = (tx: Db | Tx, tenantId: string, connection
     dedupeKey: jobKey('connection', connectionId, 'token_validation'),
     recurringEverySeconds: EVERY.token_validation,
   });
+
+/** Adelanta el descubrimiento de cuentas al siguiente tick (o lo crea si no existe). */
+export async function discoverNow(tx: Db | Tx, tenantId: string, connectionId: string) {
+  const dedupeKey = jobKey('connection', connectionId, 'discovery');
+  await tx
+    .update(jobs)
+    .set({ runAfter: new Date() })
+    .where(and(eq(jobs.dedupeKey, dedupeKey), eq(jobs.status, 'queued')));
+  await enqueue(tx, {
+    tenantId,
+    kind: 'discovery',
+    payload: { connectionId },
+    dedupeKey,
+    recurringEverySeconds: EVERY.discovery,
+  });
+}
 
 /** Trabajos recurrentes de una cuenta con la sincronización activa (idempotente). */
 export async function ensureAccountJobs(
