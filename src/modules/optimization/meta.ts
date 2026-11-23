@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { ActionSnapshot, type Preview, type Snapshot } from '../../action-contracts.ts';
+import {
+  ActionSnapshot,
+  type Preview,
+  ScheduleWindow,
+  type Snapshot,
+} from '../../action-contracts.ts';
 import type { Db } from '../../db/client.ts';
 import type { actions, adAccounts, metaConnections } from '../../db/schema.ts';
 import type { Config } from '../../platform/config.ts';
@@ -29,6 +34,8 @@ const Raw = z.object({
   is_budget_schedule_enabled: z.boolean().optional(),
   campaign_id: z.string().optional(),
   adset_id: z.string().optional(),
+  adset_schedule: z.array(ScheduleWindow).nullish(),
+  pacing_type: z.array(z.string()).optional(),
   end_time: z.string().optional(),
   stop_time: z.string().optional(),
 });
@@ -133,6 +140,9 @@ export function createActionGateway(opts: {
                 'is_budget_schedule_enabled',
                 level === 'adset' ? 'end_time' : 'stop_time',
                 ...(level === 'adset' ? ['campaign_id'] : []),
+                ...(level === 'adset' && a.operation === 'set_weekly_schedule'
+                  ? ['adset_schedule', 'pacing_type']
+                  : []),
               ]),
         ];
         const { body } = await session.get<unknown>(`/${id}`, { fields: fields.join(',') });
@@ -154,6 +164,12 @@ export function createActionGateway(opts: {
         dailyBudget: r.daily_budget ?? '0',
         lifetimeBudget: r.lifetime_budget ?? '0',
         scheduleEnabled: r.is_budget_schedule_enabled ?? false,
+        ...(a.operation === 'set_weekly_schedule'
+          ? {
+              weeklySchedule: encodeSchedule(r.adset_schedule ?? []),
+              pacing: r.pacing_type ?? ['standard'],
+            }
+          : {}),
         campaignId: r.campaign_id ?? null,
         adsetId: r.adset_id ?? null,
         parentDailyBudget: parent?.daily_budget ?? '0',
@@ -179,6 +195,10 @@ export function createActionGateway(opts: {
       const response = await client
         .post<{ success?: boolean }>(`/${a.entityMetaId}`, {
           [p.field]: p.after,
+          pacing_type:
+            p.field === 'adset_schedule'
+              ? JSON.stringify([p.after === '[]' ? 'standard' : 'day_parting'])
+              : undefined,
         })
         .catch(async (err) => {
           if (err instanceof MetaApiError)
@@ -190,4 +210,19 @@ export function createActionGateway(opts: {
         throw new Error('Meta no confirmó el resultado: reconciliación obligatoria.');
     },
   };
+}
+
+export function encodeSchedule(windows: z.infer<typeof ScheduleWindow>[]) {
+  const byHours = new Map<string, z.infer<typeof ScheduleWindow>>();
+  for (const { days, start_minute, end_minute, timezone_type } of windows) {
+    const key = JSON.stringify([start_minute, end_minute, timezone_type]);
+    const previous = byHours.get(key);
+    byHours.set(key, {
+      days: [...new Set([...(previous?.days ?? []), ...days])].sort((a, b) => a - b),
+      start_minute,
+      end_minute,
+      timezone_type,
+    });
+  }
+  return JSON.stringify([...byHours.keys()].sort().map((key) => byHours.get(key)));
 }

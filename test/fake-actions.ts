@@ -86,6 +86,12 @@ export function fakeActionMeta(opts: {
           entity[key] = params.get(key);
           if (key === 'status') entity.effective_status = params.get(key);
         }
+    if (state.mode !== 'lag') {
+      for (const key of ['adset_schedule', 'pacing_type']) {
+        const value = params.get(key);
+        if (value !== null) entity[key] = JSON.parse(value);
+      }
+    }
     if (state.mode === 'timeout-applied') throw new TypeError('Synthetic timeout after apply');
     return reply({ success: true });
   }) as typeof globalThis.fetch;

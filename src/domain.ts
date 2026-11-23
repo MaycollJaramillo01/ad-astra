@@ -9,6 +9,7 @@ export const ACTION_TYPES = [
   'activate',
   'set_daily_budget',
   'set_lifetime_budget',
+  'set_weekly_schedule',
 ] as const;
 export const ACTION_STATES = [
   'proposed',

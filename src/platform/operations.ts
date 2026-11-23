@@ -18,7 +18,7 @@ import { AppError, conflict, notFound, unauthorized } from './errors.ts';
 import { recordEvent } from './events.ts';
 import { type TenantContext, tenantOf } from './http.ts';
 
-export const SCHEMA_VERSION = 17;
+export const SCHEMA_VERSION = 18;
 
 /** El operador llama dentro de una transacción; ingesta autorizada sin liberar efectos externos. */
 export async function activateReadOnly(

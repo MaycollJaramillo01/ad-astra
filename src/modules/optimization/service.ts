@@ -4,9 +4,11 @@ import type { z } from 'zod';
 import {
   type ActionCreateBody,
   ActionPolicy,
+  type AdSetStatusProposalBody,
   type BudgetAction,
   type Policy,
   type Preview,
+  type ScheduleProposalBody,
   type Snapshot,
 } from '../../action-contracts.ts';
 import { type Db, first, type Tx, withContext } from '../../db/client.ts';
@@ -37,7 +39,7 @@ import { assertSideEffects } from '../../platform/operations.ts';
 import { can } from '../../platform/rbac.ts';
 import { findAccount } from '../catalog/accounts.ts';
 import { clientScope } from '../tenancy/clients.routes.ts';
-import type { ActionGateway, ActionRow, WriteContext } from './meta.ts';
+import { type ActionGateway, type ActionRow, encodeSchedule, type WriteContext } from './meta.ts';
 import { checkPolicy, configuration, fieldOf, hash, previewOf } from './model.ts';
 
 export const previewOfRow = (a: ActionRow) => a.preview as Preview | null;
@@ -150,7 +152,7 @@ export async function authorization(
     throw forbidden('Organización, cliente o conexión no disponibles para escribir.');
   const scope = readOnly
     ? 'read_insights'
-    : fieldOf(a.operation) === 'status'
+    : fieldOf(a.operation) === 'status' || a.operation === 'set_weekly_schedule'
       ? 'write_status'
       : 'write_budget';
   const [consent] = await tx
@@ -233,11 +235,11 @@ export async function checkFrequency(tx: Tx, a: ActionRow, p: Preview, policy: P
   const last = same.reduce((n, x) => Math.max(n, x.reservedAt?.getTime() ?? 0), 0);
   if (Date.now() - last < 30_000)
     throw conflict('Espera al menos 30 segundos entre ediciones del mismo objeto.');
-  if (p.field !== 'status') {
+  if (p.field === 'daily_budget' || p.field === 'lifetime_budget') {
     if (
       same.filter(
         (x) =>
-          fieldOf(x.operation) !== 'status' &&
+          (x.operation === 'set_daily_budget' || x.operation === 'set_lifetime_budget') &&
           (x.reservedAt?.getTime() ?? 0) > Date.now() - 3_600_000,
       ).length >= 4
     )
@@ -418,6 +420,78 @@ export function createActionService(deps: ActionDeps) {
             desired: a.desired,
             reason: body.reason,
           },
+          ctx.userId,
+        );
+        return dto(tx, a);
+      });
+    },
+    async proposeAdSet(
+      ctx: TenantContext,
+      body: z.infer<typeof ScheduleProposalBody> | z.infer<typeof AdSetStatusProposalBody>,
+    ) {
+      const operation = 'operation' in body ? body.operation : 'set_weekly_schedule';
+      const desired =
+        'operation' in body
+          ? body.operation === 'pause'
+            ? 'PAUSED'
+            : 'ACTIVE'
+          : encodeSchedule([
+              {
+                days: body.days,
+                start_minute: body.startHour * 60,
+                end_minute: body.endHour * 60,
+                timezone_type: 'ADVERTISER',
+              },
+            ]);
+      return withContext(db, ctx, async (tx) => {
+        await findAccount(tx, ctx, body.adAccountId);
+        const [adSet] = await tx
+          .select({ id: adsets.metaId })
+          .from(adsets)
+          .where(
+            and(
+              eq(adsets.adAccountId, body.adAccountId),
+              eq(adsets.metaId, body.adSetId),
+              isNull(adsets.deletedAt),
+            ),
+          );
+        if (!adSet) throw notFound('Conjunto de anuncios');
+        const requestHash = hash({
+          adAccountId: body.adAccountId,
+          adSetId: body.adSetId,
+          desired,
+          reason: body.reason,
+        });
+        const [a] = await tx
+          .insert(actions)
+          .values({
+            tenantId: ctx.tenantId,
+            adAccountId: body.adAccountId,
+            entityLevel: 'adset',
+            entityMetaId: body.adSetId,
+            operation,
+            desired,
+            reason: body.reason,
+            idempotencyKey: body.idempotencyKey,
+            requestHash,
+            proposedBy: ctx.userId,
+          })
+          .onConflictDoNothing({ target: [actions.tenantId, actions.idempotencyKey] })
+          .returning();
+        if (!a) {
+          const existing = first(
+            await tx.select().from(actions).where(eq(actions.idempotencyKey, body.idempotencyKey)),
+          );
+          await findAccount(tx, ctx, existing.adAccountId);
+          if (existing.requestHash !== requestHash)
+            throw conflict('Clave de idempotencia reutilizada con otro contenido.');
+          return dto(tx, existing);
+        }
+        await record(
+          tx,
+          a,
+          'proposed',
+          { operation: a.operation, desired, reason: body.reason },
           ctx.userId,
         );
         return dto(tx, a);

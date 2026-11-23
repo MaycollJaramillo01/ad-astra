@@ -12,6 +12,8 @@ import {
   ActionQuery,
   ActionRevisionBody,
   ActionRollbackBody,
+  AdSetStatusProposalBody,
+  ScheduleProposalBody,
 } from '../../action-contracts.ts';
 import { IdParams } from '../../contracts.ts';
 import { tenantOf } from '../../platform/http.ts';
@@ -67,6 +69,22 @@ export async function actionRoutes(fastify: FastifyInstance, deps: ActionDeps) {
       schema: { body: ActionCreateBody, response: { 200: ActionDto } },
     },
     (r) => service.propose(tenantOf(r), r.body),
+  );
+  app.post(
+    '/v1/actions/weekly-schedule',
+    {
+      config: { access: { permission: 'actions:propose' } },
+      schema: { body: ScheduleProposalBody, response: { 200: ActionDto } },
+    },
+    (r) => service.proposeAdSet(tenantOf(r), r.body),
+  );
+  app.post(
+    '/v1/actions/ad-set-status',
+    {
+      config: { access: { permission: 'actions:propose' } },
+      schema: { body: AdSetStatusProposalBody, response: { 200: ActionDto } },
+    },
+    (r) => service.proposeAdSet(tenantOf(r), r.body),
   );
   app.post(
     '/v1/actions/:id/preview',

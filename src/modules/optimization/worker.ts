@@ -164,7 +164,12 @@ export function createActionHandler(deps: ActionDeps): JobHandler {
               ? 'status'
               : prepared.preview.field === 'daily_budget'
                 ? 'dailyBudget'
-                : 'lifetimeBudget']: prepared.preview.after,
+                : prepared.preview.field === 'lifetime_budget'
+                  ? 'lifetimeBudget'
+                  : 'weeklySchedule']: prepared.preview.after,
+            ...(prepared.preview.field === 'adset_schedule'
+              ? { pacing: [prepared.preview.after === '[]' ? 'standard' : 'day_parting'] }
+              : {}),
           };
           if (hash(configuration(live)) === hash(configuration(expected))) {
             await inTenant(a.tenantId, async (tx) => {

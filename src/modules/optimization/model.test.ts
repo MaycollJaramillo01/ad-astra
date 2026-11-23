@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ActionPolicy, type Snapshot } from '../../action-contracts.ts';
-import { checkPolicy, configuration, hash, previewOf } from './model.ts';
+import { encodeSchedule } from './meta.ts';
+import { checkPolicy, configuration, hash, matches, previewOf } from './model.ts';
 
 const snapshot: Snapshot = {
   id: '123',
@@ -38,6 +39,31 @@ describe('guardrails del Action Center', () => {
     );
     expect(hash(configuration({ ...snapshot, dailyBudget: '11000' }))).not.toBe(
       hash(configuration(snapshot)),
+    );
+  });
+  it('programa el martes con dos aprobaciones y verifica el modo de entrega', () => {
+    const total = { ...snapshot, dailyBudget: '0', lifetimeBudget: '10000' };
+    const desired = encodeSchedule([
+      {
+        days: [2],
+        start_minute: 0,
+        end_minute: 1440,
+        timezone_type: 'ADVERTISER',
+      },
+    ]);
+    expect(() => previewOf(snapshot, 'set_weekly_schedule', desired, 'adset', policy)).toThrow();
+    const diff = previewOf(total, 'set_weekly_schedule', desired, 'adset', policy);
+    expect(diff).toMatchObject({
+      field: 'adset_schedule',
+      requiredApprovals: 2,
+      increaseMinor: '0',
+    });
+    const preview = { ...diff, hash: '', policyHash: '', expiresAt: '' };
+    expect(matches({ ...total, weeklySchedule: desired, pacing: ['standard'] }, preview)).toBe(
+      false,
+    );
+    expect(matches({ ...total, weeklySchedule: desired, pacing: ['day_parting'] }, preview)).toBe(
+      true,
     );
   });
   it('rechaza cambiar modo de presupuesto, anuncios, CBO y presupuestos programados', () => {

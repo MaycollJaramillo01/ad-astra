@@ -5,22 +5,30 @@ import { canonical } from '../audit/service.ts';
 
 export const hash = (value: unknown) => createHash('sha256').update(canonical(value)).digest('hex');
 export const fieldOf = (operation: string) =>
-  operation === 'set_daily_budget'
-    ? ('daily_budget' as const)
-    : operation === 'set_lifetime_budget'
-      ? ('lifetime_budget' as const)
-      : ('status' as const);
+  operation === 'set_weekly_schedule'
+    ? ('adset_schedule' as const)
+    : operation === 'set_daily_budget'
+      ? ('daily_budget' as const)
+      : operation === 'set_lifetime_budget'
+        ? ('lifetime_budget' as const)
+        : ('status' as const);
 export const snapshotValue = (s: Snapshot, field: string) =>
-  field === 'daily_budget'
-    ? s.dailyBudget
-    : field === 'lifetime_budget'
-      ? s.lifetimeBudget
-      : s.status;
+  field === 'adset_schedule'
+    ? (s.weeklySchedule ?? '[]')
+    : field === 'daily_budget'
+      ? s.dailyBudget
+      : field === 'lifetime_budget'
+        ? s.lifetimeBudget
+        : s.status;
 
 /** Identidad y configuración que debe permanecer estable entre revisión y envío. El estado
  * efectivo puede cambiar asíncronamente por revisión de Meta; se verifica por separado. */
 export const configuration = (s: Snapshot) => ({ ...s, effectiveStatus: undefined });
 export function matches(s: Snapshot, preview: Preview): boolean {
+  if (preview.field === 'adset_schedule') {
+    const expected = preview.after === '[]' ? 'standard' : 'day_parting';
+    if (!s.pacing?.includes(expected)) return false;
+  }
   return snapshotValue(s, preview.field) === preview.after;
 }
 
@@ -43,7 +51,26 @@ export function previewOf(
   ];
   let changePct = 0,
     increaseMinor = '0';
-  if (field !== 'status') {
+  if (field === 'adset_schedule') {
+    if (
+      level !== 'adset' ||
+      s.lifetimeBudget === '0' ||
+      s.dailyBudget !== '0' ||
+      s.parentDailyBudget !== '0' ||
+      s.parentLifetimeBudget !== '0' ||
+      !s.endTime ||
+      !(Date.parse(s.endTime) > Date.now())
+    )
+      throw badRequest('El conjunto necesita presupuesto total propio y una fecha de fin futura.');
+    if (s.pacing?.some((mode) => mode !== 'standard' && mode !== 'day_parting'))
+      throw badRequest('La modalidad de entrega actual requiere revisión manual.');
+    if (BigInt(s.lifetimeBudget) > BigInt(p.maxBudgetMinor))
+      throw badRequest('El presupuesto supera el máximo autorizado.');
+    warnings.push(
+      'Meta aplica el calendario en la zona horaria indicada hasta la fecha de fin.',
+      'Si el conjunto o su campaña están pausados, el calendario no los reactiva.',
+    );
+  } else if (field !== 'status') {
     if (level === 'ad') throw badRequest('Los anuncios no tienen presupuesto propio.');
     if (s.scheduleEnabled)
       throw badRequest('Los presupuestos programados requieren revisión manual.');
@@ -103,7 +130,11 @@ export function previewOf(
     changePct,
     increaseMinor,
     requiredApprovals:
-      operation === 'activate' || (field !== 'status' && changePct >= p.doubleApprovalPct) ? 2 : 1,
+      operation === 'activate' ||
+      field === 'adset_schedule' ||
+      (field !== 'status' && changePct >= p.doubleApprovalPct)
+        ? 2
+        : 1,
     warnings,
   };
 }

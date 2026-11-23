@@ -11,7 +11,7 @@ const reason = z.string().trim().min(8).max(1000);
 export const ActionPolicy = z
   .object({
     enabled: z.boolean().default(false),
-    allowedOperations: z.array(z.enum(ACTION_TYPES)).max(4).default(['pause']),
+    allowedOperations: z.array(z.enum(ACTION_TYPES)).max(ACTION_TYPES.length).default(['pause']),
     maxBudgetMinor: minor.default('0'),
     maxDailyIncreaseMinor: minor.default('0'),
     maxChangePct: z.number().positive().max(100).default(20),
@@ -27,6 +27,30 @@ export const ActionCreateBody = z.object({
   idempotencyKey: z.uuid(),
   budgetMinor: minor.optional(),
   reason,
+});
+const AdSetProposal = z.object({
+  adAccountId: z.uuid(),
+  adSetId: z.string().regex(/^\d{1,30}$/),
+  idempotencyKey: z.uuid(),
+  reason,
+});
+export const AdSetStatusProposalBody = AdSetProposal.extend({
+  operation: z.enum(['pause', 'activate']),
+});
+export const ScheduleProposalBody = AdSetProposal.extend({
+  days: z
+    .array(z.number().int().min(0).max(6))
+    .min(1)
+    .max(7)
+    .refine((days) => new Set(days).size === days.length, 'Los días deben ser únicos'),
+  startHour: z.number().int().min(0).max(23),
+  endHour: z.number().int().min(1).max(24),
+}).refine((body) => body.startHour < body.endHour, 'El horario debe terminar después de empezar');
+export const ScheduleWindow = z.object({
+  days: z.array(z.number().int().min(0).max(6)),
+  start_minute: z.number().int().min(0).max(1439),
+  end_minute: z.number().int().min(1).max(1440),
+  timezone_type: z.enum(['USER', 'ADVERTISER']),
 });
 export const ActionDecisionBody = z.object({
   revision: z.number().int().nonnegative(),
@@ -49,6 +73,8 @@ export const ActionSnapshot = z.object({
   dailyBudget: minor,
   lifetimeBudget: minor,
   scheduleEnabled: z.boolean(),
+  weeklySchedule: z.string().optional(),
+  pacing: z.array(z.string()).optional(),
   campaignId: z.string().nullable(),
   adsetId: z.string().nullable(),
   parentDailyBudget: minor,
@@ -63,7 +89,7 @@ export const ActionSnapshot = z.object({
 });
 export const ActionPreview = z.object({
   snapshot: ActionSnapshot,
-  field: z.enum(['status', 'daily_budget', 'lifetime_budget']),
+  field: z.enum(['status', 'daily_budget', 'lifetime_budget', 'adset_schedule']),
   before: z.string(),
   after: z.string(),
   hash: z.string(),

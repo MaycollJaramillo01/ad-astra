@@ -127,6 +127,13 @@
       "when": 1793119515516,
       "tag": "0017_read_only_sync",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1795453505821,
+      "tag": "0018_weekly_promotion_schedule",
+      "breakpoints": true
     }
   ]
 }

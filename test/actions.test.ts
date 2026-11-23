@@ -287,6 +287,96 @@ describe('Action Center: contratos, aprobación y ejecución real contra Graph s
     expect((await x.get(p.id)).result).toBe('verified');
     expect(x.meta.writes[0]).toEqual({ id: set!.metaId, params: { daily_budget: '11000' } });
   });
+  it('aplica el calendario semanal al conjunto solo tras dos aprobaciones', async () => {
+    const x = await setup();
+    const [adSet] = await withContext(db, { tenantId: x.a.tenantId }, (tx) =>
+      tx.select().from(s.adsets).where(eq(s.adsets.adAccountId, x.a.account.id)),
+    );
+    const parent = x.meta.state.objects.get(x.a.campaign.metaId)!;
+    parent.daily_budget = '0';
+    x.meta.state.objects.set(adSet!.metaId, {
+      ...parent,
+      id: adSet!.metaId,
+      campaign_id: x.a.campaign.metaId,
+      lifetime_budget: '10000',
+      end_time: parent.stop_time,
+    });
+    expect(
+      (
+        await x.setPolicy({
+          ...x.policy,
+          allowedOperations: ['set_weekly_schedule', 'pause', 'activate'],
+        })
+      ).statusCode,
+    ).toBe(200);
+    const post = x.t.as(x.a.owner, x.a.tenantId);
+    const body = {
+      adAccountId: x.a.account.id,
+      adSetId: adSet!.metaId,
+      days: [2],
+      startHour: 9,
+      endHour: 17,
+      idempotencyKey: randomUUID(),
+      reason,
+    };
+    const schedulePath = '/v1/actions/weekly-schedule';
+    expect((await post.post(schedulePath, { ...body, endHour: 8 })).statusCode).toBe(400);
+    const response = await post.post(schedulePath, body);
+    expect(response.statusCode, response.body).toBe(200);
+    const proposal = response.json<BudgetAction>();
+    expect((await post.post(schedulePath, body)).json<BudgetAction>().id).toBe(proposal.id);
+    expect((await post.post(schedulePath, { ...body, days: [3] })).statusCode).toBe(409);
+    const reviewed = await x.preview(proposal);
+    expect(reviewed.statusCode, reviewed.body).toBe(200);
+    const preview = reviewed.json<BudgetAction>();
+    expect(preview.preview?.requiredApprovals).toBe(2);
+    const approvedOnce = await x.approve(preview);
+    expect(approvedOnce.json<BudgetAction>().state).toBe('review');
+    await x.tick();
+    expect(x.meta.writes).toHaveLength(0);
+    expect(
+      (await x.approve(approvedOnce.json<BudgetAction>(), x.admin2)).json<BudgetAction>().state,
+    ).toBe('approved');
+    await x.tick();
+    const [write] = x.meta.writes;
+    expect(write?.id).toBe(adSet!.metaId);
+    expect(JSON.parse(write!.params.adset_schedule!)).toEqual([
+      { days: [2], start_minute: 540, end_minute: 1020, timezone_type: 'ADVERTISER' },
+    ]);
+    expect(JSON.parse(write!.params.pacing_type!)).toEqual(['day_parting']);
+    expect(await x.get(proposal.id)).toMatchObject({ result: 'verified', confirmedWrite: true });
+    for (const [operation, status] of [
+      ['pause', 'PAUSED'],
+      ['activate', 'ACTIVE'],
+    ] as const) {
+      await withContext(db, { tenantId: x.a.tenantId }, (tx) =>
+        tx
+          .update(s.actions)
+          .set({ reservedAt: new Date(0) })
+          .where(eq(s.actions.adAccountId, x.a.account.id)),
+      );
+      const result = await post.post('/v1/actions/ad-set-status', {
+        adAccountId: body.adAccountId,
+        adSetId: body.adSetId,
+        operation,
+        reason,
+        idempotencyKey: randomUUID(),
+      });
+      expect(result.statusCode, result.body).toBe(200);
+      const action = (await x.preview(result.json<BudgetAction>())).json<BudgetAction>();
+      const approval = (await x.approve(action)).json<BudgetAction>();
+      if (operation === 'activate') {
+        expect(approval.state).toBe('review');
+        await x.approve(approval, x.admin2);
+      }
+      await x.tick();
+      expect(await x.get(action.id)).toMatchObject({ result: 'verified', after: { status } });
+      expect(x.meta.writes.at(-1)?.params).toEqual({ status });
+      expect(x.meta.state.objects.get(adSet!.metaId)?.adset_schedule).toEqual(
+        JSON.parse(write!.params.adset_schedule!),
+      );
+    }
+  });
   it('pausa un anuncio sin modificar el estado de sus padres', async () => {
     const x = await setup(),
       adId = String(Math.floor(Math.random() * 1e12));

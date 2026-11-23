@@ -1157,7 +1157,7 @@ export const actions = pgTable(
     entityLevel: text('entity_level', { enum: ['campaign', 'adset', 'ad'] }).notNull(),
     entityMetaId: text('entity_meta_id').notNull(),
     operation: text('operation', {
-      enum: ['pause', 'activate', 'set_daily_budget', 'set_lifetime_budget'],
+      enum: ['pause', 'activate', 'set_daily_budget', 'set_lifetime_budget', 'set_weekly_schedule'],
     }).notNull(),
     desired: text('desired').notNull(),
     reason: text('reason').notNull(),
@@ -1214,7 +1214,13 @@ export const actions = pgTable(
     ),
     check(
       'actions_operation_check',
-      oneOf(sql`${t.operation}`, ['pause', 'activate', 'set_daily_budget', 'set_lifetime_budget']),
+      oneOf(sql`${t.operation}`, [
+        'pause',
+        'activate',
+        'set_daily_budget',
+        'set_lifetime_budget',
+        'set_weekly_schedule',
+      ]),
     ),
     check('actions_level_check', oneOf(sql`${t.entityLevel}`, ['campaign', 'adset', 'ad'])),
   ],
@@ -1265,7 +1271,7 @@ export const deploymentState = pgTable(
   {
     id: integer('id').primaryKey().default(1),
     environment: text('environment').notNull().default('unbound'),
-    schemaVersion: integer('schema_version').notNull().default(17),
+    schemaVersion: integer('schema_version').notNull().default(18),
     recoveryMode: boolean('recovery_mode').notNull().default(true),
     readOnlyMode: boolean('read_only_mode').notNull().default(false),
     workerStartedAt: ts('worker_started_at'),

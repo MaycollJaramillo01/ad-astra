@@ -4,7 +4,7 @@ import { expect, it } from 'vitest';
 import { createDb, type Tx } from '../src/db/client.ts';
 import { auditLog, deploymentState, jobs } from '../src/db/schema.ts';
 import { claimJob, enqueue, finishJob } from '../src/platform/jobs.ts';
-import { activateReadOnly, assertSideEffects } from '../src/platform/operations.ts';
+import { activateReadOnly, assertSideEffects, SCHEMA_VERSION } from '../src/platform/operations.ts';
 import { config } from './app.ts';
 import { testEnv } from './env.ts';
 
@@ -24,7 +24,7 @@ async function isolated(run: (tx: Tx, tenantId: string) => Promise<void>) {
       );
       await tx
         .insert(deploymentState)
-        .values({ environment: 'production', recoveryMode: true, schemaVersion: 17 });
+        .values({ environment: 'production', recoveryMode: true, schemaVersion: SCHEMA_VERSION });
       await run(tx, randomUUID());
     });
   } finally {

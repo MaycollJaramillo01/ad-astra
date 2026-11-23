@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
-import type { BudgetAction, Policy } from '../../src/action-contracts.ts';
+import { type BudgetAction, type Policy, ScheduleWindow } from '../../src/action-contracts.ts';
 import type { AdAccount, Recommendation } from '../../src/contracts.ts';
 import { ACTION_STATES, ACTION_TYPES, type Role } from '../../src/domain.ts';
 import type { MonitoringOverview } from '../../src/modules/monitoring/service.ts';
@@ -22,6 +22,7 @@ const names: Record<string, string> = {
   activate: 'Activar',
   set_daily_budget: 'Presupuesto diario',
   set_lifetime_budget: 'Presupuesto total',
+  set_weekly_schedule: 'Horario semanal',
 };
 const input =
   'rounded border border-gray-300 bg-transparent px-2 py-1.5 text-sm dark:border-gray-700';
@@ -172,6 +173,13 @@ export function ActionCenterPage({
           currency={account?.currency ?? ''}
         />
       )}
+      {account && role !== 'viewer' && (
+        <WeeklyScheduleForm
+          key={`schedule-${account.id}`}
+          account={account}
+          adSets={monitor.data?.entities.filter((entry) => entry.level === 'adset') ?? []}
+        />
+      )}
       {role !== 'viewer' && (
         <section className={`${box} space-y-3`}>
           <h2 className="font-semibold">Recomendaciones</h2>
@@ -260,6 +268,172 @@ export function ActionCenterPage({
         </p>
       </section>
     </div>
+  );
+}
+
+const presets = [
+  { label: 'Solo los martes', days: [2] },
+  { label: 'De lunes a viernes', days: [1, 2, 3, 4, 5] },
+  { label: 'Todos los días', days: [0, 1, 2, 3, 4, 5, 6] },
+];
+const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+const scheduleTime = (minutes: number) =>
+  `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+
+function scheduleLabel(value: string, timezone: string) {
+  const windows = ScheduleWindow.array().parse(JSON.parse(value));
+  if (!windows.length) return 'Sin restricción semanal';
+  return windows
+    .map(
+      (window) =>
+        `${window.days.map((day) => dayNames[day]).join(', ')} · ${scheduleTime(window.start_minute)}–${scheduleTime(window.end_minute)} · ${window.timezone_type === 'USER' ? 'Hora del público' : timezone}`,
+    )
+    .join(' / ');
+}
+
+function WeeklyScheduleForm({
+  account,
+  adSets,
+}: {
+  account: AdAccount;
+  adSets: { id: string; name: string }[];
+}) {
+  const refresh = useRefresh();
+  const [operation, setOperation] = useState<'schedule' | 'pause' | 'activate'>('schedule');
+  const lastRequest = useRef<{ fingerprint: string; key: string }>(null);
+  const mutation = useMutation({
+    mutationFn: ({ path, body }: { path: string; body: unknown }) =>
+      api<BudgetAction>(path, { method: 'POST', body }),
+    onSuccess: refresh,
+  });
+  return (
+    <section className={`${box} space-y-3`}>
+      <h2 className="font-semibold">Horario semanal de promoción</h2>
+      <p className="text-sm text-gray-600 dark:text-gray-300">
+        Horarios en {account.timezoneName}. El conjunto requiere presupuesto total propio y fecha de
+        fin. Pausar detiene la publicación. Reanudar vuelve a usar el calendario guardado.
+      </p>
+      {adSets.length === 0 ? (
+        <p className="text-sm">Conjuntos sincronizados no disponibles.</p>
+      ) : (
+        <form
+          className="space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const form = event.currentTarget;
+            const data = new FormData(form);
+            const common = {
+              adAccountId: account.id,
+              adSetId: data.get('adSet'),
+              reason: String(data.get('reason')).trim(),
+            };
+            let body: typeof common &
+              (
+                | { days: number[]; startHour: number; endHour: number }
+                | { operation: 'pause' | 'activate' }
+              );
+            const path =
+              operation === 'schedule'
+                ? '/v1/actions/weekly-schedule'
+                : '/v1/actions/ad-set-status';
+            if (operation === 'schedule') {
+              const startHour = Number(data.get('start'));
+              const endHour = Number(data.get('end'));
+              const end = form.elements.namedItem('end');
+              if (end instanceof HTMLInputElement && startHour >= endHour) {
+                end.setCustomValidity('La hora de fin debe ser posterior a la de inicio.');
+                end.reportValidity();
+                return;
+              }
+              const preset = presets[Number(data.get('preset'))];
+              if (!preset) return;
+              body = { ...common, days: preset.days, startHour, endHour };
+            } else {
+              body = { ...common, operation };
+            }
+            const fingerprint = JSON.stringify(body);
+            if (lastRequest.current?.fingerprint !== fingerprint)
+              lastRequest.current = { fingerprint, key: crypto.randomUUID() };
+            mutation.mutate({ path, body: { ...body, idempotencyKey: lastRequest.current.key } });
+          }}
+          onInput={(event) => {
+            const end = event.currentTarget.elements.namedItem('end');
+            if (end instanceof HTMLInputElement) end.setCustomValidity('');
+          }}
+        >
+          <fieldset disabled={mutation.isPending} className="grid gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1 text-sm">
+              Conjunto de anuncios
+              <select required name="adSet" defaultValue="" className={input}>
+                <option value="">Seleccionar conjunto</option>
+                {adSets.map((adSet) => (
+                  <option key={adSet.id} value={adSet.id}>
+                    {adSet.name} · {adSet.id}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              Operación
+              <select
+                className={input}
+                value={operation}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (value === 'schedule' || value === 'pause' || value === 'activate') {
+                    setOperation(value);
+                    mutation.reset();
+                  }
+                }}
+              >
+                <option value="schedule">Programar horario</option>
+                <option value="pause">Pausar promoción</option>
+                <option value="activate">Reanudar promoción</option>
+              </select>
+            </label>
+            {operation === 'schedule' && (
+              <>
+                <label className="flex flex-col gap-1 text-sm">
+                  Días de publicación
+                  <select name="preset" className={input}>
+                    {presets.map((preset, index) => (
+                      <option key={preset.label} value={index}>
+                        {preset.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  Hora de inicio (0–23)
+                  <input required name="start" type="number" min={0} max={23} className={input} />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  Hora de fin (1–24)
+                  <input required name="end" type="number" min={1} max={24} className={input} />
+                </label>
+              </>
+            )}
+            <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+              Motivo
+              <input required name="reason" minLength={8} maxLength={1000} className={input} />
+            </label>
+          </fieldset>
+          <button type="submit" disabled={mutation.isPending} className={button}>
+            {operation === 'pause'
+              ? 'Proponer pausa'
+              : operation === 'activate'
+                ? 'Proponer reanudación'
+                : 'Proponer horario'}
+          </button>
+          {mutation.error && <ErrorBox error={mutation.error} />}
+          {mutation.isSuccess && (
+            <p role="status" className="text-sm">
+              Propuesta registrada. Revísala en la lista de acciones.
+            </p>
+          )}
+        </form>
+      )}
+    </section>
   );
 }
 
@@ -462,11 +636,21 @@ function ActionCard({
               <tbody>
                 <tr>
                   <th scope="row" className="py-2 font-normal">
-                    {p.field}
+                    {p.field === 'adset_schedule' ? 'Horario semanal' : p.field}
                   </th>
-                  <td>{p.field === 'status' ? p.before : minors(p.before, p.snapshot.currency)}</td>
+                  <td>
+                    {p.field === 'adset_schedule'
+                      ? scheduleLabel(p.before, p.snapshot.timezone)
+                      : p.field === 'status'
+                        ? p.before
+                        : minors(p.before, p.snapshot.currency)}
+                  </td>
                   <td className="font-semibold">
-                    {p.field === 'status' ? p.after : minors(p.after, p.snapshot.currency)}
+                    {p.field === 'adset_schedule'
+                      ? scheduleLabel(p.after, p.snapshot.timezone)
+                      : p.field === 'status'
+                        ? p.after
+                        : minors(p.after, p.snapshot.currency)}
                   </td>
                 </tr>
               </tbody>
@@ -478,7 +662,8 @@ function ActionCard({
               {a.approvals.length}/{p.requiredApprovals}
             </strong>
             . Diff válido hasta {new Date(p.expiresAt).toLocaleString('es')}.
-            {p.field !== 'status' && ` Cambio: ${p.changePct.toFixed(1)} %.`}
+            {(p.field === 'daily_budget' || p.field === 'lifetime_budget') &&
+              ` Cambio: ${p.changePct.toFixed(1)} %.`}
           </p>
           <ul className="list-disc space-y-1 pl-5 text-sm text-gray-600 dark:text-gray-300">
             {p.warnings.map((w) => (
@@ -499,8 +684,7 @@ function ActionCard({
         <p className="text-sm">
           Relectura: estado configurado <strong>{a.after.status}</strong>, efectivo{' '}
           <strong>{a.after.effectiveStatus}</strong>.
-          {p?.field !== 'status' &&
-            p &&
+          {(p?.field === 'daily_budget' || p?.field === 'lifetime_budget') &&
             ` Presupuesto: ${minors(p.field === 'daily_budget' ? a.after.dailyBudget : a.after.lifetimeBudget, a.after.currency)}.`}{' '}
           Verificar configuración no garantiza entrega ni resultados.
         </p>
