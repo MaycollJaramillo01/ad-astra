@@ -64,6 +64,7 @@ export function ActionCenterPage({
     entityLevel = sp.get('nivel'),
     selectedAction = sp.get('accion');
   const navigate = useNavigate();
+  const accountSelect = useRef<HTMLSelectElement>(null);
   const accounts = useQuery({
     queryKey: ['accounts'],
     queryFn: () => api<AdAccount[]>('/v1/ad-accounts'),
@@ -115,6 +116,7 @@ export function ActionCenterPage({
           <label className="flex flex-col gap-1 text-sm">
             Cuenta
             <select
+              ref={accountSelect}
               className={input}
               value={accountId ?? ''}
               onChange={(e) =>
@@ -165,6 +167,17 @@ export function ActionCenterPage({
         </p>
       </details>
       {queryError && <ErrorBox error={queryError} />}
+      {!accountId && !embedded && role !== 'viewer' && (
+        <section className={`${box} space-y-2`}>
+          <h2 className="font-semibold">Horario semanal de promoción</h2>
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            Selecciona una cuenta para programar, pausar o reanudar sus promociones.
+          </p>
+          <button type="button" className={button} onClick={() => accountSelect.current?.focus()}>
+            Elegir cuenta
+          </button>
+        </section>
+      )}
       {accountId && !embedded && (
         <AccountActionPolicy
           key={accountId}

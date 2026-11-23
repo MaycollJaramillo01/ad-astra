@@ -14,7 +14,10 @@ const spendNoLeads = series(7, (back) => (back >= 3 && back <= 6 ? leadsDay(20, 
 
 describe('runAudit y entidades apagadas', () => {
   it('no abre hallazgos sobre una campaña pausada, sí sobre la misma activa', () => {
-    const active = entity('campaign', 'c-activa', { objective: 'OUTCOME_LEADS', days: spendNoLeads });
+    const active = entity('campaign', 'c-activa', {
+      objective: 'OUTCOME_LEADS',
+      days: spendNoLeads,
+    });
     const paused = entity('campaign', 'c-pausada', {
       objective: 'OUTCOME_LEADS',
       status: 'PAUSED',

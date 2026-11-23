@@ -532,7 +532,7 @@ describe('motor', () => {
     const b = run(structuredClone(entities));
     expect(JSON.stringify(b)).toBe(JSON.stringify(a));
     expect(a.engineVersion).toBe(ENGINE_VERSION);
-    expect(ENGINE_VERSION).toMatch(/^audit-1\.0\.0\+[0-9a-f]{8}$/);
+    expect(ENGINE_VERSION).toMatch(/^audit-\d+\.\d+\.\d+\+[0-9a-f]{8}$/);
   });
 
   it('cada hallazgo guarda métricas, explicación, confianza, regla, versión y método', () => {

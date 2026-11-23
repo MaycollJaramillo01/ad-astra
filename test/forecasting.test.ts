@@ -1,5 +1,5 @@
 import { and, eq, gte } from 'drizzle-orm';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Experiment, ExperimentPreview, Forecast, Simulation } from '../src/contracts.ts';
 import { withContext } from '../src/db/client.ts';
 import * as s from '../src/db/schema.ts';
@@ -274,6 +274,11 @@ describe('simulación (POST /v1/simulations)', () => {
 });
 
 describe('experimentos de presupuesto (/v1/budget-experiments)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(`${addDays(UNTIL, 1)}T12:00:00Z`));
+  });
+  afterEach(() => vi.useRealTimers());
   const body = () => ({
     adAccountId: accountId,
     campaignId: '9100',
