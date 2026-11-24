@@ -305,10 +305,19 @@ export function createActionService(deps: ActionDeps) {
     async policy(ctx: TenantContext, id: string) {
       return withContext(db, ctx, async (tx) => {
         await findAccount(tx, ctx, id);
+        const [job] = await tx
+          .select({ lastError: jobs.lastError, runAfter: jobs.runAfter })
+          .from(jobs)
+          .where(
+            and(eq(jobs.dedupeKey, `delivery:${id}`), inArray(jobs.status, ['queued', 'running'])),
+          );
         return {
           adAccountId: id,
           globalEnabled: config.META_WRITES_ENABLED,
           policy: await policyFor(tx, id),
+          delivery: job
+            ? { lastError: job.lastError, nextRunAt: job.runAfter.toISOString() }
+            : null,
         };
       });
     },
@@ -342,6 +351,21 @@ export function createActionService(deps: ActionDeps) {
             after: { policy, reason, authorizationVersion },
           },
         );
+        // El trabajo termina solo cuando ya no hay horarios; aquí basta con asegurar que exista.
+        if (policy.deliverySchedules.length) {
+          await enqueue(tx, {
+            tenantId: ctx.tenantId,
+            kind: 'delivery_schedule',
+            payload: { adAccountId: id },
+            dedupeKey: `delivery:${id}`,
+            recurringEverySeconds: 300,
+          });
+          // Aplicar el cambio en el próximo tick aunque el trabajo estuviera en backoff.
+          await tx
+            .update(jobs)
+            .set({ runAfter: new Date() })
+            .where(and(eq(jobs.dedupeKey, `delivery:${id}`), eq(jobs.status, 'queued')));
+        }
         return { adAccountId: id, globalEnabled: config.META_WRITES_ENABLED, policy };
       });
     },

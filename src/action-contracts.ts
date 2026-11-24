@@ -8,6 +8,15 @@ const minor = z
   .string()
   .regex(/^(0|[1-9]\d{0,14})$/, 'Importe entero en unidades menores, sin decimales');
 const reason = z.string().trim().min(8).max(1000);
+/** Encendido por días de una campaña: ACTIVE los días marcados, PAUSED el resto (zona de la cuenta). */
+export const DeliverySchedule = z.object({
+  campaignId: z.string().regex(/^\d{1,30}$/),
+  days: z
+    .array(z.number().int().min(0).max(6))
+    .min(1)
+    .max(7)
+    .refine((days) => new Set(days).size === days.length, 'Los días deben ser únicos'),
+});
 export const ActionPolicy = z
   .object({
     enabled: z.boolean().default(false),
@@ -19,6 +28,14 @@ export const ActionPolicy = z
     doubleApprovalPct: z.number().nonnegative().max(100).default(10),
     startHour: z.number().int().min(0).max(23).default(0),
     endHour: z.number().int().min(1).max(24).default(24),
+    deliverySchedules: z
+      .array(DeliverySchedule)
+      .max(20)
+      .refine(
+        (list) => new Set(list.map((x) => x.campaignId)).size === list.length,
+        'Una campaña solo puede tener un horario',
+      )
+      .default([]),
   })
   .refine((p) => p.startHour < p.endHour, 'La ventana no puede cruzar medianoche');
 export const ActionPolicyBody = z.object({ policy: ActionPolicy, reason });
@@ -135,6 +152,11 @@ export const ActionPolicyDto = z.object({
   adAccountId: z.uuid(),
   globalEnabled: z.boolean(),
   policy: ActionPolicy,
+  /** Último ciclo del encendido por días; null si no hay horarios en cola. */
+  delivery: z
+    .object({ lastError: z.string().nullable(), nextRunAt: z.string() })
+    .nullable()
+    .optional(),
 });
 export type BudgetAction = z.infer<typeof ActionDto>;
 export type Policy = z.infer<typeof ActionPolicy>;

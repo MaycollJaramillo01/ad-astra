@@ -6,7 +6,10 @@ import { withContext } from '../src/db/client.ts';
 import * as s from '../src/db/schema.ts';
 import { tokenAad } from '../src/modules/meta/sync.ts';
 import { createActionGateway } from '../src/modules/optimization/meta.ts';
-import { createActionHandler } from '../src/modules/optimization/worker.ts';
+import {
+  createActionHandler,
+  createDeliveryScheduleHandler,
+} from '../src/modules/optimization/worker.ts';
 import { createTokenCipher } from '../src/platform/crypto.ts';
 import { runTick } from '../src/platform/jobs.ts';
 import { createLogger } from '../src/platform/logging.ts';
@@ -130,6 +133,8 @@ async function setup(
     return p.json<BudgetAction>();
   };
   return {
+    c,
+    gateway,
     a,
     t,
     meta,
@@ -632,5 +637,79 @@ describe('Action Center: contratos, aprobación y ejecución real contra Graph s
           .post(`/v1/actions/${p.id}/close`, { revision: p.revision, reason })
       ).statusCode,
     ).toBe(200);
+  });
+  it('el encendido por días pausa y enciende la campaña según el día de la cuenta, sin aprobaciones por cambio', async () => {
+    const x = await setup();
+    const today = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(
+      new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'Europe/Madrid' }).format(
+        new Date(),
+      ),
+    );
+    const campaignId = x.a.campaign.metaId;
+    const run = async (c = x.c) => {
+      await x.due();
+      await runTick({
+        db,
+        handlers: {
+          delivery_schedule: createDeliveryScheduleHandler({ db, config: c, gateway: x.gateway }),
+        },
+        budgetMs: 2000,
+        concurrency: 1,
+        tenantId: x.a.tenantId,
+        log: createLogger(undefined, 'silent'),
+      });
+    };
+    const status = () => x.meta.state.objects.get(campaignId)?.status;
+    const policyView = async () =>
+      (await x.t.as(x.a.owner, x.a.tenantId).get(`/v1/action-policies/${x.a.account.id}`)).json<{
+        delivery: { lastError: string | null } | null;
+      }>();
+
+    // Hoy no está marcado: se pausa una vez y no se vuelve a escribir.
+    expect(
+      (
+        await x.setPolicy({
+          ...x.policy,
+          deliverySchedules: [{ campaignId, days: [(today + 1) % 7] }],
+        })
+      ).statusCode,
+    ).toBe(200);
+    await run();
+    expect(status()).toBe('PAUSED');
+    expect(x.meta.writes).toEqual([{ id: campaignId, params: { status: 'PAUSED' } }]);
+    await run();
+    expect(x.meta.writes).toHaveLength(1);
+    expect((await policyView()).delivery?.lastError).toBeNull();
+
+    // Hoy marcado: se enciende sin pasar por el quorum de dos aprobadores.
+    await x.setPolicy({ ...x.policy, deliverySchedules: [{ campaignId, days: [today] }] });
+    await run();
+    expect(status()).toBe('ACTIVE');
+    expect(x.meta.writes.at(-1)).toEqual({ id: campaignId, params: { status: 'ACTIVE' } });
+    const events = await withContext(db, { tenantId: x.a.tenantId }, (tx) =>
+      tx.select().from(s.auditLog).where(eq(s.auditLog.action, 'delivery_schedule.applied')),
+    );
+    expect(events).toHaveLength(2);
+
+    // Los guardrails siguen mandando: máximo presupuestario, operaciones y kill switch global.
+    await x.setPolicy({
+      ...x.policy,
+      maxBudgetMinor: '5000',
+      deliverySchedules: [{ campaignId, days: [today] }],
+    });
+    x.meta.state.objects.get(campaignId)!.status = 'PAUSED';
+    await run();
+    expect(status()).toBe('PAUSED');
+    expect((await policyView()).delivery?.lastError).toMatch(/máximo autorizado/);
+    await x.setPolicy({ ...x.policy, deliverySchedules: [{ campaignId, days: [today] }] });
+    await run({ ...x.c, META_WRITES_ENABLED: false });
+    expect(status()).toBe('PAUSED');
+    expect((await policyView()).delivery?.lastError).toMatch(/Interruptor global/);
+    expect(x.meta.writes).toHaveLength(2);
+
+    // Sin horarios el trabajo termina.
+    await x.setPolicy({ ...x.policy, deliverySchedules: [] });
+    await run();
+    expect((await policyView()).delivery).toBeNull();
   });
 });

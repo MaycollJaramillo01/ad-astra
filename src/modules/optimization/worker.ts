@@ -3,6 +3,7 @@ import type { Preview, Snapshot } from '../../action-contracts.ts';
 import { first, withContext } from '../../db/client.ts';
 import { actions, adAccounts, memberships, recommendations } from '../../db/schema.ts';
 import { conflict, forbidden } from '../../platform/errors.ts';
+import { recordEvent } from '../../platform/events.ts';
 import type { JobHandler, JobOutcome } from '../../platform/jobs.ts';
 import { can } from '../../platform/rbac.ts';
 import { findAccount } from '../catalog/accounts.ts';
@@ -10,7 +11,7 @@ import { MetaApiError } from '../meta/client.ts';
 import { ThrottledError } from '../meta/governor.ts';
 import { captureBeforeAction } from '../monitoring/service.ts';
 import type { ActionRow } from './meta.ts';
-import { checkPolicy, configuration, hash, matches, previewOf } from './model.ts';
+import { checkPolicy, configuration, hash, matches, previewOf, scheduledStatus } from './model.ts';
 import {
   type ActionDeps,
   authorization,
@@ -316,6 +317,87 @@ export function createActionHandler(deps: ActionDeps): JobHandler {
           return { type: 'end', reason: 'Guardrail o preflight fallido' };
         });
       }
+    });
+  };
+}
+
+/** Encendido por días: el owner/admin lo autoriza una vez en las reglas de la cuenta y cada tick
+ * deja cada campaña ACTIVE o PAUSED según el día en la zona de la cuenta. Pasa por los mismos
+ * interruptores, consentimiento write_status, operaciones permitidas y máximo presupuestario que
+ * una acción manual; solo escribe si Meta difiere y vuelve a leer para comprobarlo.
+ * ponytail: deja huella en audit_log, no en `actions`; si hace falta verlo en el Action Center,
+ * crear filas de acción cerradas por cada cambio. */
+export function createDeliveryScheduleHandler(deps: ActionDeps): JobHandler {
+  const { db, config, gateway } = deps;
+  return async (job) => {
+    const id = (job.payload as { adAccountId?: string }).adAccountId;
+    if (!id) return { type: 'stop', error: 'Falta adAccountId' };
+    return withContext(db, { tenantId: job.tenantId }, async (lockTx) => {
+      const policy = await policyFor(lockTx, id);
+      const [account] = await lockTx.select().from(adAccounts).where(eq(adAccounts.id, id));
+      if (!account || !policy.deliverySchedules.length)
+        return { type: 'end', reason: 'sin horarios de encendido' };
+      const { rows } = await lockTx.execute<{ locked: boolean }>(
+        sql`select pg_try_advisory_xact_lock(hashtextextended(${`action:${account.metaAccountId}`}, 0)) as locked`,
+      );
+      if (!rows[0]?.locked)
+        return {
+          type: 'reschedule',
+          runAfter: new Date(Date.now() + 30_000),
+          reason: 'Otra ejecución está usando esta cuenta.',
+        };
+      const errors: string[] = [];
+      for (const schedule of policy.deliverySchedules) {
+        const desired = scheduledStatus(schedule.days, account.timezoneName);
+        const operation = desired === 'ACTIVE' ? 'activate' : 'pause';
+        // Solo los campos que leen authorization/inspect/write.
+        const row = {
+          tenantId: job.tenantId,
+          adAccountId: id,
+          entityLevel: 'campaign',
+          entityMetaId: schedule.campaignId,
+          operation,
+          desired,
+          recommendationId: null,
+          rollbackOf: null,
+          state: 'approved',
+        } as unknown as ActionRow;
+        try {
+          const auth = await withContext(db, { tenantId: job.tenantId }, async (tx) => {
+            if (!config.META_WRITES_ENABLED)
+              throw conflict('Interruptor global de escrituras desactivado.');
+            checkPolicy(policy, operation, account.timezoneName);
+            return authorization(tx, row, config);
+          });
+          const live = await gateway.inspect(auth, row);
+          if (live.status === desired) continue;
+          const preview = previewOf(live, operation, desired, 'campaign', policy);
+          await gateway.beforeWrite(auth);
+          await gateway.write(auth, row, preview as Preview);
+          const after = await gateway.inspect(auth, row);
+          await withContext(db, { tenantId: job.tenantId }, (tx) =>
+            recordEvent(
+              tx,
+              { tenantId: job.tenantId, actorType: 'system' },
+              {
+                action: 'delivery_schedule.applied',
+                targetType: 'campaign',
+                targetId: schedule.campaignId,
+                before: { status: live.status },
+                after: { status: after.status, desired, days: schedule.days },
+              },
+            ),
+          );
+          if (after.status !== desired)
+            errors.push(`${schedule.campaignId}: Meta aún no muestra ${desired}.`);
+        } catch (err) {
+          if (err instanceof ThrottledError)
+            return { type: 'reschedule', runAfter: err.until, reason: 'Cuota de Meta' };
+          errors.push(`${schedule.campaignId}: ${safeError(err)}`);
+        }
+      }
+      // El error queda en jobs.last_error (visible en las reglas de la cuenta) y se reintenta.
+      return errors.length ? { type: 'retry', error: errors.join(' | ') } : { type: 'done' };
     });
   };
 }

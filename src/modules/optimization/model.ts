@@ -3,6 +3,15 @@ import type { Policy, Preview, Snapshot } from '../../action-contracts.ts';
 import { badRequest, conflict } from '../../platform/errors.ts';
 import { canonical } from '../audit/service.ts';
 
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+/** Estado que corresponde hoy en la zona de la cuenta: días 0 = domingo … 6 = sábado. */
+export function scheduledStatus(days: number[], timezone: string, now = new Date()) {
+  const day = WEEKDAYS.indexOf(
+    new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: timezone }).format(now),
+  );
+  return days.includes(day) ? ('ACTIVE' as const) : ('PAUSED' as const);
+}
+
 export const hash = (value: unknown) => createHash('sha256').update(canonical(value)).digest('hex');
 export const fieldOf = (operation: string) =>
   operation === 'set_weekly_schedule'

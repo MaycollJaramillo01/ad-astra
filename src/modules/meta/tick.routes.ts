@@ -12,7 +12,7 @@ import { assertDeployment, evaluateTechnical } from '../../platform/operations.t
 import { createAuditHandler } from '../audit/service.ts';
 import { createMonitoringHandlers } from '../monitoring/worker.ts';
 import { createActionGateway } from '../optimization/meta.ts';
-import { createActionHandler } from '../optimization/worker.ts';
+import { createActionHandler, createDeliveryScheduleHandler } from '../optimization/worker.ts';
 import { createSyncHandlers } from './sync.ts';
 
 // Tick de la cola (ADR-022): Vercel Cron llama a GET /v1/internal/tick con
@@ -24,6 +24,7 @@ export function createTickRunner(config: Config, db: Db, cipher: TokenCipher, lo
     config.META_APP_ID && config.META_APP_SECRET
       ? { appId: config.META_APP_ID, appSecret: config.META_APP_SECRET }
       : null;
+  const actionDeps = { db, config, gateway: createActionGateway({ db, config, cipher }) };
   const handlers = {
     ...createMonitoringHandlers(db, config),
     ...(meta
@@ -44,11 +45,8 @@ export function createTickRunner(config: Config, db: Db, cipher: TokenCipher, lo
           ]),
         )),
     audit: createAuditHandler(db),
-    action_execute: createActionHandler({
-      db,
-      config,
-      gateway: createActionGateway({ db, config, cipher }),
-    }),
+    action_execute: createActionHandler(actionDeps),
+    delivery_schedule: createDeliveryScheduleHandler(actionDeps),
   };
   return async () => {
     await assertDeployment(db, config);

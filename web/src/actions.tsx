@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useId, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { type BudgetAction, type Policy, ScheduleWindow } from '../../src/action-contracts.ts';
-import type { AdAccount, Recommendation } from '../../src/contracts.ts';
+import type { AdAccount, Campaign, Recommendation } from '../../src/contracts.ts';
 import { ACTION_STATES, ACTION_TYPES, type Role } from '../../src/domain.ts';
 import type { MonitoringOverview } from '../../src/modules/monitoring/service.ts';
 import { accountPath } from './account-context.ts';
@@ -893,7 +893,11 @@ export function AccountActionPolicy({
   const q = useQuery({
     queryKey: ['action-policy', accountId],
     queryFn: () =>
-      api<{ globalEnabled: boolean; policy: Policy }>(`/v1/action-policies/${accountId}`),
+      api<{
+        globalEnabled: boolean;
+        policy: Policy;
+        delivery?: { lastError: string | null; nextRunAt: string } | null;
+      }>(`/v1/action-policies/${accountId}`),
   });
   if (q.error) return <ErrorBox error={q.error} />;
   if (!q.data) return <p className="text-sm">Cargando reglas de escritura…</p>;
@@ -905,6 +909,17 @@ export function AccountActionPolicy({
         <strong>{q.data.globalEnabled ? 'habilitado' : 'desactivado en el servidor'}</strong>.{' '}
         Cuenta: <strong>{q.data.policy.enabled ? 'habilitada' : 'kill switch activo'}</strong>.
       </p>
+      {q.data.delivery && (
+        <p className="mt-1 text-sm" role="status">
+          Encendido por días:{' '}
+          {q.data.delivery.lastError ? (
+            <strong className="text-red-700 dark:text-red-400">{q.data.delivery.lastError}</strong>
+          ) : (
+            <strong>al día</strong>
+          )}
+          . Próxima comprobación {new Date(q.data.delivery.nextRunAt).toLocaleString('es')}.
+        </p>
+      )}
       {admin(role) ? (
         <PolicyForm
           key={JSON.stringify(q.data.policy)}
@@ -988,8 +1003,8 @@ function PolicyForm({
         </fieldset>
         <p className="text-xs text-gray-500">
           Importes enteros en unidades menores {currency}: 10000 equivale a 100,00 si la moneda usa
-          dos decimales. Los presupuestos y activaciones requieren un máximo mayor que cero. La
-          política no autoriza cambios automáticos.
+          dos decimales. Los presupuestos y activaciones requieren un máximo mayor que cero. Solo el
+          encendido por días se ejecuta sin aprobación por cambio.
         </p>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {amountFields.map(([key, label]) => (
@@ -1019,6 +1034,11 @@ function PolicyForm({
             </label>
           ))}
         </div>
+        <DeliveryScheduleFields
+          accountId={accountId}
+          value={p.deliverySchedules}
+          onChange={(deliverySchedules) => setP({ ...p, deliverySchedules })}
+        />
         <label className="flex flex-col gap-1" htmlFor={`${id}-reason`}>
           Motivo del cambio de reglas
           <input
@@ -1060,5 +1080,75 @@ function PolicyForm({
         </p>
       </form>
     </details>
+  );
+}
+
+function DeliveryScheduleFields({
+  accountId,
+  value,
+  onChange,
+}: {
+  accountId: string;
+  value: Policy['deliverySchedules'];
+  onChange: (next: Policy['deliverySchedules']) => void;
+}) {
+  const q = useQuery({
+    queryKey: ['campaigns', accountId],
+    queryFn: () => api<Campaign[]>(`/v1/ad-accounts/${accountId}/campaigns`),
+  });
+  const campaigns = (q.data ?? []).filter(
+    (c) =>
+      c.status === 'ACTIVE' ||
+      c.status === 'PAUSED' ||
+      value.some((x) => x.campaignId === c.metaId),
+  );
+  const toggle = (campaignId: string, day: number) => {
+    const days = value.find((x) => x.campaignId === campaignId)?.days ?? [];
+    const next = days.includes(day)
+      ? days.filter((d) => d !== day)
+      : [...days, day].sort((a, b) => a - b);
+    const rest = value.filter((x) => x.campaignId !== campaignId);
+    onChange(next.length ? [...rest, { campaignId, days: next }] : rest);
+  };
+  return (
+    <fieldset className="space-y-2">
+      <legend className="mb-1 font-medium">Encendido automático por días</legend>
+      <p className="text-xs text-gray-500">
+        Marca los días en que cada campaña debe publicar. Ad Astra la enciende esos días y la pausa
+        el resto (zona horaria de la cuenta, revisión cada 5 minutos). Requiere Pausar y Activar
+        permitidas y un máximo por presupuesto que cubra la campaña. Sin días marcados, la campaña
+        no se toca.
+      </p>
+      {q.error && <ErrorBox error={q.error} />}
+      {q.data && campaigns.length === 0 && <p className="text-xs">Sin campañas sincronizadas.</p>}
+      <div className="overflow-x-auto">
+        <table className="text-xs">
+          <tbody>
+            {campaigns.map((c) => {
+              const days = value.find((x) => x.campaignId === c.metaId)?.days ?? [];
+              return (
+                <tr key={c.metaId}>
+                  <th scope="row" className="py-1 pr-3 text-left font-normal">
+                    {c.name}
+                  </th>
+                  {dayNames.map((name, day) => (
+                    <td key={name} className="px-1">
+                      <label className="flex items-center gap-1">
+                        <input
+                          type="checkbox"
+                          checked={days.includes(day)}
+                          onChange={() => toggle(c.metaId, day)}
+                        />
+                        {name}
+                      </label>
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </fieldset>
   );
 }

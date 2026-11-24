@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ActionPolicy, type Snapshot } from '../../action-contracts.ts';
 import { encodeSchedule } from './meta.ts';
-import { checkPolicy, configuration, hash, matches, previewOf } from './model.ts';
+import { checkPolicy, configuration, hash, matches, previewOf, scheduledStatus } from './model.ts';
 
 const snapshot: Snapshot = {
   id: '123',
@@ -142,5 +142,28 @@ describe('guardrails del Action Center', () => {
         new Date('2026-10-26T10:00:00Z'),
       ),
     ).not.toThrow();
+  });
+});
+
+describe('encendido por días', () => {
+  it('decide el día en la zona de la cuenta, no en UTC', () => {
+    // 2026-11-25 03:00 UTC = martes 24, 21:00 en Tegucigalpa (UTC-6).
+    const now = new Date('2026-11-25T03:00:00Z');
+    expect(scheduledStatus([2], 'America/Tegucigalpa', now)).toBe('ACTIVE');
+    expect(scheduledStatus([2], 'UTC', now)).toBe('PAUSED');
+    expect(
+      scheduledStatus([1, 2, 3, 4, 5], 'America/Tegucigalpa', new Date('2026-11-29T18:00:00Z')),
+    ).toBe('PAUSED');
+  });
+  it('rechaza días repetidos y campañas duplicadas', () => {
+    const base = { campaignId: '1', days: [2] };
+    expect(ActionPolicy.safeParse({ deliverySchedules: [base] }).success).toBe(true);
+    expect(ActionPolicy.safeParse({ deliverySchedules: [{ ...base, days: [2, 2] }] }).success).toBe(
+      false,
+    );
+    expect(ActionPolicy.safeParse({ deliverySchedules: [base, base] }).success).toBe(false);
+    expect(ActionPolicy.safeParse({ deliverySchedules: [{ ...base, days: [] }] }).success).toBe(
+      false,
+    );
   });
 });
